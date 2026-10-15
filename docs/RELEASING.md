@@ -14,7 +14,7 @@ APK 输出在 `app/build/outputs/apk/release/app-release.apk`。分发前使用 
 
 ## GitHub Actions
 
-`.github/workflows/build-release.yml` 在手动运行或推送 `v*` tag 时构建。仓库需要配置以下 Actions secrets：
+`.github/workflows/build-release.yml` 仅在手动运行时构建。仓库需要配置以下 Actions secrets：
 
 - `SIGNING_KEY`：完整 JKS 文件的 base64 内容
 - `KEY_STORE_PASSWORD`：keystore 密码
