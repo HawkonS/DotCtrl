@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">点控</string>
+    <string name="accessibility_service_name">DotCtrl Auto Click Service</string>
+    <string name="accessibility_service_description">Dispatches taps, long presses, and swipes at screen coordinates you configure. It does not read screen content or record activity in other apps.</string>
+</resources>

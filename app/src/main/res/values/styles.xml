@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.DotCtrl" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#91F2D5</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F7FAF8</item>
+        <item name="android:navigationBarColor">#F7FAF8</item>
+        <item name="android:windowBackground">#F7FAF8</item>
+    </style>
+</resources>

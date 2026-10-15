@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">点控</string>
+    <string name="accessibility_service_name">点控自动点击服务</string>
+    <string name="accessibility_service_description">用于按你设置的屏幕坐标执行点击、长按和滑动。不会读取屏幕内容或记录其他应用中的操作。</string>
+</resources>
