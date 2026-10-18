@@ -6,7 +6,7 @@ import tech.hawkon.dotctrl.R
 /** Localize validation messages from the platform-independent core at the UI boundary. */
 fun Context.errorText(message: String?): String? = when (message) {
     "单点模式不支持滑动" -> getString(R.string.error_single_point_mode_does_not_support_swipes)
-    "点击间隔须为 50–60000 毫秒" -> getString(R.string.error_click_interval_must_be_50_60000_ms)
+    "点击间隔须为 5–60000 毫秒" -> getString(R.string.error_click_interval_must_be_5_60000_ms)
     "次数须为 1–100000" -> getString(R.string.error_count_must_be_1_100000)
     "脚本标识无效" -> getString(R.string.error_invalid_script_id)
     "名称须为 1–60 字符" -> getString(R.string.error_name_must_contain_1_60_characters)

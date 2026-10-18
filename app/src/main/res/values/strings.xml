@@ -248,7 +248,7 @@
     <string name="position_not_selected">未选择</string>
 
     <string name="error_single_point_mode_does_not_support_swipes">单点模式不支持滑动</string>
-    <string name="error_click_interval_must_be_50_60000_ms">点击间隔须为 50–60000 毫秒</string>
+    <string name="error_click_interval_must_be_5_60000_ms">点击间隔须为 5–60000 毫秒</string>
     <string name="error_count_must_be_1_100000">次数须为 1–100000</string>
     <string name="error_invalid_script_id">脚本标识无效</string>
     <string name="error_name_must_contain_1_60_characters">名称须为 1–60 字符</string>

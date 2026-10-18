@@ -93,7 +93,7 @@ fun orientationFor(width: Int, height: Int): Int = if (width >= height) 2 else 1
 
 fun ClickSettings.validate() {
     require(gestureType != GestureType.SWIPE) { "单点模式不支持滑动" }
-    require(intervalMs in 50..60_000) { "点击间隔须为 50–60000 毫秒" }
+    require(intervalMs in 5..60_000) { "点击间隔须为 5–60000 毫秒" }
     require(repeatCount in 1..100_000) { "次数须为 1–100000" }
     asScript().validate()
 }

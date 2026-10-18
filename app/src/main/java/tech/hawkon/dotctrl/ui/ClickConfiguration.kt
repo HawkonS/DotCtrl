@@ -578,7 +578,7 @@ private fun ModeEditorDialog(initial: ClickMode, initialName: String? = null, ti
             GestureChoices(draft.gestureType, listOf(GestureType.TAP, GestureType.LONG_PRESS), true) {
                 draft = draft.copy(gestureType = it, gestureDurationMs = if (it == GestureType.LONG_PRESS) 600 else 80)
             }
-            NumberField(context.getString(R.string.ui_click_interval_ms), draft.intervalMs, 50L..60_000L) { draft = draft.copy(intervalMs = it) }
+            NumberField(context.getString(R.string.ui_click_interval_ms), draft.intervalMs, 5L..60_000L) { draft = draft.copy(intervalMs = it) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(context.getString(R.string.ui_continuous_clicks), Modifier.weight(1f)); Switch(checked = draft.continuous, onCheckedChange = { draft = draft.copy(continuous = it) })
             }

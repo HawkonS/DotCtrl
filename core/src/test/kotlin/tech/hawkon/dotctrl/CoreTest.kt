@@ -27,6 +27,13 @@ class CoreTest {
         }
     }
 
+    @Test fun clickIntervalAllowsFiveMillisecondsAndRejectsLowerValues() {
+        ClickSettings(intervalMs = 5).validate()
+        assertThrows(IllegalArgumentException::class.java) {
+            ClickSettings(intervalMs = 4).validate()
+        }
+    }
+
     @Test fun runnerStopsAfterRequestedLoops() = runTest {
         val dispatched = mutableListOf<ScriptStep>()
         val result = ScriptRunner({ dispatched += it; true }).run(
