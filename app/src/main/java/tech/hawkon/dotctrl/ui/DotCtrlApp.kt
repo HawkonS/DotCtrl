@@ -1,5 +1,6 @@
 package tech.hawkon.dotctrl.ui
 
+import tech.hawkon.dotctrl.R
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings as AndroidSettings
@@ -27,7 +28,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Storage
-import androidx.compose.material.icons.outlined.Brightness6
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
@@ -56,6 +57,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import tech.hawkon.dotctrl.data.*
+import tech.hawkon.dotctrl.BuildConfig
 import tech.hawkon.dotctrl.service.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -72,6 +74,10 @@ fun DotCtrlApp(
     onExit: () -> Unit,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: (ThemeMode) -> Unit = {},
+    language: AppLanguage = AppLanguage.CHINESE,
+    onLanguageChange: (AppLanguage) -> Unit = {},
+    overlayTransparency: Float = 0f,
+    onOverlayTransparencyChange: (Float) -> Unit = {},
 ) {
     val context = LocalContext.current
     val repository = remember { ScriptRepository(context) }
@@ -107,7 +113,7 @@ fun DotCtrlApp(
     fun reload() {
         single = settingsStore.read()
         runCatching { presetStore.read() }.onSuccess { presets = it; presetFailure = null }
-            .onFailure { presetFailure = "常用配置读取失败，原数据已保留" }
+            .onFailure { presetFailure = context.getString(R.string.ui_could_not_load_presets_your_data_has_been_preserved) }
         runCatching {
             val stored = repository.load()
             ensureBuiltInScripts(stored, context.screenArea().orientation).also {
@@ -120,24 +126,24 @@ fun DotCtrlApp(
             }
             loadFailure = null
         }
-            .onFailure { loadFailure = "脚本文件读取失败，原文件已保留：${it.message}" }
+            .onFailure { loadFailure = context.getString(R.string.ui_could_not_read_the_script_file_the_original_file_has_been_preserved, context.errorText(it.message)) }
         overlayAllowed = AndroidSettings.canDrawOverlays(context)
     }
     fun saveSingle(updated: ClickSettings): Boolean = runCatching {
         settingsStore.write(updated)
         single = updated
         AutoClickAccessibilityService.instance?.configurationChanged()
-    }.onFailure { message(it.message ?: "保存失败") }.isSuccess
+    }.onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_could_not_save)) }.isSuccess
     fun savePresets(updated: PresetLibrary): Boolean = runCatching {
         check(presetFailure == null) { presetFailure.orEmpty() }
         presetStore.write(updated)
         presets = updated
         AutoClickAccessibilityService.instance?.configurationChanged()
-    }.onFailure { message(it.message ?: "保存失败") }.isSuccess
+    }.onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_could_not_save)) }.isSuccess
     fun saveScripts(updated: List<ClickScript>) {
-        if (loadFailure != null) { message("请先修复本地脚本文件再写入"); return }
+        if (loadFailure != null) { message(context.getString(R.string.ui_repair_the_local_script_file_before_saving)); return }
         runCatching { repository.save(updated) }.onSuccess { scripts = updated }
-            .onFailure { message(it.message ?: "保存失败") }
+            .onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_could_not_save)) }
     }
     fun pickPresetPosition(requestId: String, initial: ScreenPoint?): Boolean {
         if (!AndroidSettings.canDrawOverlays(context) || !status.connected) {
@@ -146,27 +152,27 @@ fun DotCtrlApp(
             return false
         }
         return runCatching {
-            val service = AutoClickAccessibilityService.instance ?: error("服务尚未连接，请稍后重试")
+            val service = AutoClickAccessibilityService.instance ?: error(context.getString(R.string.ui_the_service_is_not_connected_try_again_shortly))
             service.pickPresetPosition(requestId, initial)
             onBackground()
-        }.onFailure { message(it.message ?: "无法打开选点浮窗") }.isSuccess
+        }.onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_could_not_open_the_position_picker)) }.isSuccess
     }
     fun updateScript(script: ClickScript) {
         scripts = scripts.map { if (it.id == script.id) script else it }
     }
     fun showOverlay(id: String?, autoPickSingle: Boolean = false) {
         runCatching {
-            check(overlayAllowed && status.connected) { "请先开启无障碍服务和悬浮窗权限" }
+            check(overlayAllowed && status.connected) { context.getString(R.string.ui_enable_accessibility_and_overlay_permissions_first) }
             if (id == null) settingsStore.write(single) else {
                 val script = scripts.first { it.id == id }
                 script.validate()
-                check(loadFailure == null) { "本地脚本文件异常，不能覆盖" }
+                check(loadFailure == null) { context.getString(R.string.ui_the_local_script_file_is_invalid_and_cannot_be_overwritten) }
                 repository.upsert(script)
             }
-            val service = AutoClickAccessibilityService.instance ?: error("服务尚未连接，请稍后重试")
+            val service = AutoClickAccessibilityService.instance ?: error(context.getString(R.string.ui_the_service_is_not_connected_try_again_shortly))
             service.prepare(id, autoPickSingle = autoPickSingle)
             if (RuntimeState.status.value.phase != RunPhase.ERROR) onBackground()
-        }.onFailure { message(it.message ?: "无法显示浮窗") }
+        }.onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_could_not_show_the_floating_window)) }
     }
 
     DisposableEffect(owner) {
@@ -191,15 +197,15 @@ fun DotCtrlApp(
                         while (true) {
                             val count = stream.read(buffer)
                             if (count == -1) break
-                            require(output.size() + count <= ConfigCodec.MAX_BYTES) { "文件须小于 1 MB" }
+                            require(output.size() + count <= ConfigCodec.MAX_BYTES) { context.getString(R.string.ui_the_file_must_be_smaller_than_1_mb) }
                             output.write(buffer, 0, count)
                         }
                         output.toByteArray()
-                    } ?: error("无法打开文件")
+                    } ?: error(context.getString(R.string.ui_could_not_open_the_file))
                     ConfigCodec.decode(bytes.toString(Charsets.UTF_8))
                 }
-                check(presetFailure == null) { "本机常用配置读取异常，无法覆盖" }
-                check(loadFailure == null) { "本地脚本读取异常，无法覆盖" }
+                check(presetFailure == null) { context.getString(R.string.ui_local_presets_are_invalid_and_cannot_be_overwritten) }
+                check(loadFailure == null) { context.getString(R.string.ui_local_scripts_are_invalid_and_cannot_be_overwritten) }
                 val scriptsWithBuiltIn = ensureBuiltInScripts(imported.scripts, context.screenArea().orientation)
                 withContext(Dispatchers.IO) {
                     presetStore.write(imported.presets)
@@ -209,8 +215,8 @@ fun DotCtrlApp(
                 scripts = scriptsWithBuiltIn
                 editingId = null
                 selectedScriptId = scriptsWithBuiltIn.firstOrNull()?.id
-                message("已导入常用配置：${imported.presets.positions.size} 个位置、${imported.presets.modes.size} 个模式、${scriptsWithBuiltIn.size} 个脚本")
-            }.onFailure { message(it.message ?: "文件格式不正确") }
+                message(context.getString(R.string.ui_imported_positions_modes_and_scripts, imported.presets.positions.size, imported.presets.modes.size, scriptsWithBuiltIn.size))
+            }.onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_invalid_file_format)) }
         }
     }
     val configExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -218,10 +224,10 @@ fun DotCtrlApp(
             runCatching {
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(configExportText) }
-                        ?: error("无法写入文件")
+                        ?: error(context.getString(R.string.ui_could_not_write_the_file))
                 }
-                message("常用配置已导出")
-            }.onFailure { message(it.message ?: "导出失败") }
+                message(context.getString(R.string.ui_presets_exported))
+            }.onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_could_not_export)) }
         }
     }
 
@@ -269,7 +275,7 @@ fun DotCtrlApp(
             if (editing == null) scriptsPage = false
             else runCatching { editing.validate(); repository.upsert(editing) }
                 .onSuccess { editingId = null }
-                .onFailure { message(it.message ?: "请先修正脚本参数") }
+                .onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_correct_the_script_settings_first)) }
         } else page = if (visiblePage == 2) permissionReturnPage else 0
         permissionPageManual = false
     }
@@ -280,20 +286,20 @@ fun DotCtrlApp(
             if (visiblePage == 2) {
                 if (permissionsReady) Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp)) {
                     IconButton(onClick = { page = permissionReturnPage; permissionPageManual = false }) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, context.getString(R.string.ui_back))
                     }
                 }
             } else AppTopCard(
                 page = visiblePage,
                 settingsTitle = if (scriptsPage) {
-                    if (editingId == null) "脚本动作" else "编辑脚本"
-                } else "设置",
+                    if (editingId == null) context.getString(R.string.ui_script_actions) else context.getString(R.string.ui_edit_script)
+                } else context.getString(R.string.ui_settings),
                 onSettingsBack = if (visiblePage == 1 && scriptsPage) ({
                     val editing = scripts.firstOrNull { it.id == editingId }
                     if (editing == null) scriptsPage = false
                     else runCatching { editing.validate(); repository.upsert(editing) }
                         .onSuccess { editingId = null }
-                        .onFailure { message(it.message ?: "请先修正脚本参数") }
+                        .onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_correct_the_script_settings_first)) }
                 }) else null,
                 running = status.active,
                 permissionsReady = status.connected && overlayAllowed,
@@ -325,17 +331,17 @@ fun DotCtrlApp(
                 Column {
                     if (visiblePage == 0) HomeActionBar(
                         scriptMode = tab == 1,
-                        runLabel = if (tab == 0 && !single.positionSet) "选择点击位置" else "打开浮窗",
+                        runLabel = if (tab == 0 && !single.positionSet) context.getString(R.string.ui_select_click_position) else context.getString(R.string.ui_open_floating_window),
                         onRun = {
                             if (tab == 0) showOverlay(null, autoPickSingle = !single.positionSet)
                             else (selectedScriptId ?: scripts.firstOrNull()?.id)?.let { showOverlay(it) }
-                                ?: message("请先添加脚本")
+                                ?: message(context.getString(R.string.ui_add_a_script_first))
                         },
                         onManage = { page = 1; scriptsPage = true; editingId = null },
                     )
                     if (visiblePage == 1 && !scriptsPage) {
                         Text(
-                            "仅供学习、研究与测试 · 请遵守法律法规及平台规则",
+                            context.getString(R.string.ui_for_learning_research_and_testing_follow_applicable_laws_and_platform_rules),
                             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -401,6 +407,10 @@ fun DotCtrlApp(
                         onScriptsClick = { scriptsPage = true; editingId = null },
                         themeMode = themeMode,
                         onThemeModeChange = onThemeModeChange,
+                        language = language,
+                        onLanguageChange = onLanguageChange,
+                        overlayTransparency = overlayTransparency,
+                        onOverlayTransparencyChange = onOverlayTransparencyChange,
                         presets = presets,
                         current = single,
                         editingId = editingId,
@@ -410,10 +420,10 @@ fun DotCtrlApp(
                         scripts = scripts,
                         loadFailure = loadFailure,
                         onNewScript = {
-                            val created = ClickScript(name = "脚本 ${scripts.size + 1}", orientation = context.screenArea().orientation)
+                            val created = ClickScript(name = context.getString(R.string.ui_script, scripts.size + 1), orientation = context.screenArea().orientation)
                             runCatching { repository.upsert(created) }.onSuccess {
                                 scripts = repository.load(); editingId = created.id; selectedScriptId = created.id
-                            }.onFailure { message(it.message ?: "新建失败") }
+                            }.onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_could_not_create)) }
                         },
                         onEditScript = { editingId = it; selectedScriptId = it },
                         onShowScript = { id ->
@@ -427,20 +437,20 @@ fun DotCtrlApp(
                         onChangeScript = ::updateScript,
                         onSaveScript = { edited ->
                             runCatching { edited.validate(); repository.upsert(edited) }
-                                .onSuccess { message("脚本已保存"); selectedScriptId = edited.id }
-                                .onFailure { message(it.message ?: "参数无效") }
+                                .onSuccess { message(context.getString(R.string.ui_script_saved)); selectedScriptId = edited.id }
+                                .onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_invalid_settings)) }
                         },
                         onCloseScript = { edited ->
                             runCatching { edited.validate(); repository.upsert(edited) }
                                 .onSuccess { editingId = null; selectedScriptId = edited.id }
-                                .onFailure { message(it.message ?: "请先修正脚本参数") }
+                                .onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_correct_the_script_settings_first)) }
                         },
                         onImportConfig = { configImporter.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
                         onExportConfig = {
                             runCatching {
                                 configExportText = ConfigCodec.encode(presets, scripts)
                                 configExporter.launch("dotctrl-config.json")
-                            }.onFailure { message(it.message ?: "请先修正常用配置") }
+                            }.onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_correct_the_presets_first)) }
                         },
                     )
                     presetFailure?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -453,10 +463,10 @@ fun DotCtrlApp(
     permissionDialog?.let { type ->
         val accessibility = type == "accessibility"
         AlertDialog(onDismissRequest = { permissionDialog = null; quickSetup = false },
-            title = { Text(if (accessibility) "开启无障碍服务" else "允许悬浮窗") },
+            title = { Text(if (accessibility) context.getString(R.string.ui_enable_accessibility_service) else context.getString(R.string.ui_allow_floating_windows)) },
             text = { Text(if (accessibility)
-                "点控使用无障碍服务，按你配置的坐标在其他应用中派发点击、长按和滑动。\n\n请在系统设置中找到「点控自动点击服务」并手动开启。"
-                else "悬浮窗用于在其他应用上选点、添加动作、排序和随时停止。请在系统设置中允许「点控」显示在其他应用上层。") },
+                context.getString(R.string.ui_dotctrl_uses_accessibility_to_perform_taps_long_presses_and_swipes_in_other)
+                else context.getString(R.string.ui_floating_windows_let_you_select_positions_add_and_reorder_actions_and_stop)) },
             confirmButton = { TextButton(onClick = {
                 permissionDialog = null
                 pendingPermission = type
@@ -466,24 +476,25 @@ fun DotCtrlApp(
                     .onFailure {
                         quickSetup = false
                         pendingPermission = null
-                        message("无法打开设置，请手动从系统设置授予权限")
+                        message(context.getString(R.string.ui_could_not_open_settings_grant_permissions_manually_in_system_settings))
                     }
-            }) { Text("前往系统设置") } },
-            dismissButton = { TextButton(onClick = { permissionDialog = null; quickSetup = false }) { Text("取消") } })
+            }) { Text(context.getString(R.string.ui_open_system_settings)) } },
+            dismissButton = { TextButton(onClick = { permissionDialog = null; quickSetup = false }) { Text(context.getString(R.string.ui_cancel)) } })
     }
     deleteId?.let { id ->
-        AlertDialog(onDismissRequest = { deleteId = null }, title = { Text("删除这个脚本？") },
-            text = { Text("本地脚本将被移除，已导出的 JSON 文件不受影响。") },
+        AlertDialog(onDismissRequest = { deleteId = null }, title = { Text(context.getString(R.string.ui_delete_this_script)) },
+            text = { Text(context.getString(R.string.ui_the_local_script_will_be_removed_exported_json_files_will_be_kept)) },
             confirmButton = { TextButton(onClick = {
                 saveScripts(scripts.filterNot { it.id == id }); deleteId = null
-            }) { Text("删除") } },
-            dismissButton = { TextButton(onClick = { deleteId = null }) { Text("取消") } })
+            }) { Text(context.getString(R.string.ui_delete)) } },
+            dismissButton = { TextButton(onClick = { deleteId = null }) { Text(context.getString(R.string.ui_cancel)) } })
     }
 }
 
 @Composable
 private fun AppTopCard(page: Int, running: Boolean, permissionsReady: Boolean,
     settingsTitle: String, onSettingsBack: (() -> Unit)?, onPermissions: () -> Unit) {
+    val context = LocalContext.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
@@ -496,12 +507,12 @@ private fun AppTopCard(page: Int, running: Boolean, permissionsReady: Boolean,
             ) {
                 if (page != 0 && onSettingsBack != null) {
                     IconButton(onClick = onSettingsBack, modifier = Modifier.size(42.dp)) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, context.getString(R.string.ui_back))
                     }
                     Spacer(Modifier.width(8.dp))
                 }
                 Box(Modifier.weight(1f).heightIn(min = 42.dp), contentAlignment = Alignment.CenterStart) {
-                    Text(if (page == 1) settingsTitle else "点控 DotCtrl",
+                    Text(if (page == 1) settingsTitle else context.getString(R.string.ui_dotctrl),
                         style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
                 if (page != 2) {
@@ -515,9 +526,9 @@ private fun AppTopCard(page: Int, running: Boolean, permissionsReady: Boolean,
                         modifier = Modifier.clickable(enabled = !running, onClick = onPermissions),
                     ) {
                         Text(when {
-                            running -> "运行中"
-                            permissionsReady -> "准备就绪"
-                            else -> "开启权限"
+                            running -> context.getString(R.string.ui_running)
+                            permissionsReady -> context.getString(R.string.ui_ready)
+                            else -> context.getString(R.string.ui_enable_permissions)
                         }, Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                             style = MaterialTheme.typography.labelMedium,
                             color = when {
@@ -534,24 +545,27 @@ private fun AppTopCard(page: Int, running: Boolean, permissionsReady: Boolean,
 
 @Composable
 private fun AppBottomBar(page: Int, onPageChange: (Int) -> Unit) {
+    val context = LocalContext.current
     NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
         NavigationBarItem(
             selected = page == 0,
             onClick = { onPageChange(0) },
             icon = { Icon(Icons.Outlined.Home, contentDescription = null) },
-            label = { Text("工作台") },
+            label = { Text(context.getString(R.string.ui_workbench)) },
         )
         NavigationBarItem(
             selected = page == 1,
             onClick = { onPageChange(1) },
             icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-            label = { Text("设置") },
+            label = { Text(context.getString(R.string.ui_settings)) },
         )
     }
 }
 
 @Composable
 private fun SettingsPage(scriptPage: Boolean, onScriptsClick: () -> Unit, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit,
+    language: AppLanguage, onLanguageChange: (AppLanguage) -> Unit,
+    overlayTransparency: Float, onOverlayTransparencyChange: (Float) -> Unit,
     presets: PresetLibrary, current: ClickSettings, enabled: Boolean, onPresetsChange: (PresetLibrary) -> Boolean,
     onPickPosition: (String, ScreenPoint?) -> Boolean,
     editingId: String?,
@@ -580,7 +594,7 @@ private fun SettingsPage(scriptPage: Boolean, onScriptsClick: () -> Unit, themeM
             )
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                SettingsGroup("常用配置") {
+                SettingsGroup(context.getString(R.string.ui_presets)) {
                     PresetSettings(
                         library = presets,
                         current = current,
@@ -591,13 +605,13 @@ private fun SettingsPage(scriptPage: Boolean, onScriptsClick: () -> Unit, themeM
                         onPickPosition = onPickPosition,
                     )
                 }
-                SettingsGroup("通用") {
-                    SettingsRow("存储", "本机保存", Icons.Outlined.Storage) { storageDialog = true }
-                    SettingsRow("深色模式", themeMode.label, Icons.Outlined.Brightness6) { appearanceDialog = true }
+                SettingsGroup(context.getString(R.string.ui_general)) {
+                    SettingsRow(context.getString(R.string.ui_storage), context.getString(R.string.ui_on_this_device), Icons.Outlined.Storage) { storageDialog = true }
+                    SettingsRow(context.getString(R.string.ui_display), context.getString(themeMode.labelRes), Icons.Outlined.Palette) { appearanceDialog = true }
                 }
-                SettingsGroup("关于") {
-                    SettingsRow("版本信息", "1.0.0", Icons.Outlined.Info)
-                    SettingsRow("开源仓库", "GitHub", Icons.Outlined.Code) {
+                SettingsGroup(context.getString(R.string.ui_about)) {
+                    SettingsRow(context.getString(R.string.ui_version), BuildConfig.VERSION_NAME, Icons.Outlined.Info)
+                    SettingsRow(context.getString(R.string.ui_source_code), "GitHub", Icons.Outlined.Code) {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DOTCTRL_REPOSITORY_URL)))
                     }
                 }
@@ -607,50 +621,29 @@ private fun SettingsPage(scriptPage: Boolean, onScriptsClick: () -> Unit, themeM
     if (storageDialog) {
         AlertDialog(
             onDismissRequest = { storageDialog = false },
-            title = { Text("本机保存") },
-            text = { Text("常用位置、点击模式和脚本动作都保存在本机。可用 JSON 文件导入或导出。") },
+            title = { Text(context.getString(R.string.ui_on_this_device)) },
+            text = { Text(context.getString(R.string.ui_positions_click_modes_and_scripts_are_saved_on_this_device_import_or_export)) },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(enabled = enabled, onClick = { storageDialog = false; onImportConfig() }) { Text("导入") }
-                    Button(enabled = enabled, onClick = { storageDialog = false; onExportConfig() }) { Text("导出") }
+                    TextButton(enabled = enabled, onClick = { storageDialog = false; onImportConfig() }) { Text(context.getString(R.string.ui_import)) }
+                    Button(enabled = enabled, onClick = { storageDialog = false; onExportConfig() }) { Text(context.getString(R.string.ui_export)) }
                 }
             },
-            dismissButton = { TextButton(onClick = { storageDialog = false }) { Text("关闭") } },
+            dismissButton = { TextButton(onClick = { storageDialog = false }) { Text(context.getString(R.string.ui_close)) } },
         )
     }
     if (appearanceDialog) {
-        AlertDialog(
-            onDismissRequest = { appearanceDialog = false },
-            title = { Text("深色模式") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    ThemeMode.entries.forEach { option ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable {
-                                onThemeModeChange(option)
-                                appearanceDialog = false
-                            }.padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(
-                                selected = themeMode == option,
-                                onClick = {
-                                    onThemeModeChange(option)
-                                    appearanceDialog = false
-                                },
-                            )
-                            Text(option.label, modifier = Modifier.padding(start = 8.dp))
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { appearanceDialog = false }) { Text("关闭") } },
+        DisplaySettingsDialog(
+            themeMode, onThemeModeChange, language, onLanguageChange,
+            overlayTransparency, onOverlayTransparencyChange,
+            onDismiss = { appearanceDialog = false },
         )
     }
 }
 
 @Composable
 private fun HomeActionBar(scriptMode: Boolean, runLabel: String, onRun: () -> Unit, onManage: () -> Unit) {
+    val context = LocalContext.current
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .35f))
@@ -675,7 +668,7 @@ private fun HomeActionBar(scriptMode: Boolean, runLabel: String, onRun: () -> Un
                     ) {
                         Icon(Icons.Outlined.Layers, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("管理脚本", style = MaterialTheme.typography.labelLarge)
+                        Text(context.getString(R.string.ui_manage_scripts), style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
@@ -690,23 +683,24 @@ private fun PermissionPage(
     onAccessibility: () -> Unit,
     onOverlay: () -> Unit,
 ) {
+    val context = LocalContext.current
     val ready = accessibilityReady && overlayReady
     Column(Modifier.fillMaxWidth().padding(top = 36.dp), verticalArrangement = Arrangement.spacedBy(32.dp)) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (ready) "权限管理" else "开启权限",
+            Text(if (ready) context.getString(R.string.ui_permissions) else context.getString(R.string.ui_enable_permissions),
                 style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(if (ready) "两项权限已开启，DotCtrl 已准备就绪" else "完成两项授权，即可开始使用 DotCtrl",
+            Text(if (ready) context.getString(R.string.ui_both_permissions_are_enabled_dotctrl_is_ready) else context.getString(R.string.ui_enable_both_permissions_to_start_using_dotctrl),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary,
                 textAlign = TextAlign.Center)
         }
         Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))) {
             Column {
-                PermissionItem("无障碍服务", "执行点击与滑动", accessibilityReady, onAccessibility)
+                PermissionItem(context.getString(R.string.ui_accessibility_service), context.getString(R.string.ui_perform_taps_and_swipes), accessibilityReady, onAccessibility)
                 HorizontalDivider(Modifier.padding(horizontal = 20.dp),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))
-                PermissionItem("悬浮窗", "屏幕选点与启停", overlayReady, onOverlay)
+                PermissionItem(context.getString(R.string.ui_floating_window), context.getString(R.string.ui_select_positions_and_control_clicks), overlayReady, onOverlay)
             }
         }
     }
@@ -714,6 +708,7 @@ private fun PermissionPage(
 
 @Composable
 private fun PermissionItem(title: String, detail: String, granted: Boolean, onClick: () -> Unit) {
+    val context = LocalContext.current
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 24.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -721,7 +716,7 @@ private fun PermissionItem(title: String, detail: String, granted: Boolean, onCl
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(if (granted) "已开启" else "未开启", style = MaterialTheme.typography.labelMedium,
+            Text(if (granted) context.getString(R.string.ui_enabled) else context.getString(R.string.ui_disabled), style = MaterialTheme.typography.labelMedium,
                 color = if (granted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
             Icon(if (granted) Icons.Outlined.Check else Icons.Outlined.ChevronRight, null,
                 Modifier.size(18.dp), tint = if (granted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
@@ -731,19 +726,21 @@ private fun PermissionItem(title: String, detail: String, granted: Boolean, onCl
 
 @Composable
 private fun PermissionActions(ready: Boolean, onContinue: () -> Unit, onExit: () -> Unit) {
+    val context = LocalContext.current
     Surface(color = MaterialTheme.colorScheme.background) {
         Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = onExit, modifier = Modifier.weight(1f).heightIn(min = 54.dp),
-                shape = RoundedCornerShape(18.dp)) { Text("退出") }
+                shape = RoundedCornerShape(18.dp)) { Text(context.getString(R.string.ui_exit)) }
             Button(onClick = onContinue, modifier = Modifier.weight(2f).heightIn(min = 54.dp),
-                shape = RoundedCornerShape(18.dp)) { Text(if (ready) "进入工作台" else "快速设置") }
+                shape = RoundedCornerShape(18.dp)) { Text(if (ready) context.getString(R.string.ui_open_workbench) else context.getString(R.string.ui_quick_setup)) }
         }
     }
 }
 
 @Composable
 private fun RunStatusCard(status: RuntimeStatus) {
+    val context = LocalContext.current
     val running = status.active
     val accent = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
@@ -755,12 +752,12 @@ private fun RunStatusCard(status: RuntimeStatus) {
             }
             Spacer(Modifier.width(13.dp))
             Column(Modifier.weight(1f)) {
-                Text(if (running) "正在运行" else "就绪状态", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(if (running) context.getString(R.string.ui_running_2) else context.getString(R.string.ui_ready_2), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(status.progress.ifBlank { status.message }, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary)
             }
-            if (running) FilledTonalButton(onClick = { AutoClickAccessibilityService.instance?.stop("已从主界面停止") }) {
-                Text("停止")
+            if (running) FilledTonalButton(onClick = { AutoClickAccessibilityService.instance?.stop(context.getString(R.string.ui_stopped_from_the_app)) }) {
+                Text(context.getString(R.string.ui_stop))
             }
         }
     }
@@ -768,9 +765,10 @@ private fun RunStatusCard(status: RuntimeStatus) {
 
 @Composable
 private fun ModeSwitcher(selected: Int, onSelect: (Int) -> Unit) {
+    val context = LocalContext.current
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(MaterialTheme.colorScheme.surfaceContainer),
         horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        listOf("单点连点" to Icons.Outlined.TouchApp, "坐标脚本" to Icons.Outlined.Layers).forEachIndexed { index, item ->
+        listOf(context.getString(R.string.ui_single_point) to Icons.Outlined.TouchApp, context.getString(R.string.ui_scripts) to Icons.Outlined.Layers).forEachIndexed { index, item ->
             val active = selected == index
             Surface(onClick = { onSelect(index) }, modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp), color = if (active) MaterialTheme.colorScheme.primary else Color.Transparent) {
@@ -793,10 +791,11 @@ private fun ScriptQuickLaunch(
     enabled: Boolean,
     onSelect: (String) -> Unit,
 ) {
+    val context = LocalContext.current
     val selected = scripts.firstOrNull { it.id == selectedScriptId } ?: scripts.firstOrNull()
-    Section("坐标脚本", Icons.Outlined.Layers, "脚本在设置中维护") {
+    Section(context.getString(R.string.ui_scripts), Icons.Outlined.Layers, context.getString(R.string.ui_manage_scripts_in_settings)) {
         if (scripts.isEmpty()) {
-            Text("还没有脚本", color = MaterialTheme.colorScheme.secondary)
+            Text(context.getString(R.string.ui_no_scripts_yet), color = MaterialTheme.colorScheme.secondary)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 scripts.forEach { script ->
@@ -807,8 +806,8 @@ private fun ScriptQuickLaunch(
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(script.name, Modifier.weight(1f), fontWeight = if (selected?.id == script.id) FontWeight.Bold else FontWeight.Normal)
-                        Text("${script.steps.size} 动作", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                        Text(script.displayName(context), Modifier.weight(1f), fontWeight = if (selected?.id == script.id) FontWeight.Bold else FontWeight.Normal)
+                        Text(context.getString(R.string.ui_actions, script.steps.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     }
                 }
             }
@@ -820,6 +819,7 @@ private fun ScriptQuickLaunch(
 private fun ScriptWorkspace(scripts: List<ClickScript>, loadFailure: String?, editingId: String?, enabled: Boolean,
     onNew: () -> Unit, onEdit: (String) -> Unit, onShow: (String) -> Unit, onDelete: (String) -> Unit,
     onChange: (ClickScript) -> Unit, onSave: (ClickScript) -> Unit, onClose: (ClickScript) -> Unit) {
+    val context = LocalContext.current
     val editing = scripts.firstOrNull { it.id == editingId }
     if (editing != null) {
         key(editing.id) {
@@ -828,16 +828,16 @@ private fun ScriptWorkspace(scripts: List<ClickScript>, loadFailure: String?, ed
         }
     } else {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("已保存 · ${scripts.size}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+            Text(context.getString(R.string.ui_saved, scripts.size), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(enabled = enabled && loadFailure == null, onClick = onNew) {
                 Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("新建脚本")
+                Text(context.getString(R.string.ui_new_script))
             }
         }
         loadFailure?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (scripts.isEmpty()) Text("还没有脚本，点击右上方新建。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (scripts.isEmpty()) Text(context.getString(R.string.ui_no_scripts_yet_tap_the_add_button_to_create_one), color = MaterialTheme.colorScheme.onSurfaceVariant)
         Column {
             scripts.forEach { script ->
                 key(script.id) { ScriptRow(script, enabled, onEdit, onShow, onDelete) }
@@ -849,6 +849,7 @@ private fun ScriptWorkspace(scripts: List<ClickScript>, loadFailure: String?, ed
 @Composable
 private fun ScriptRow(script: ClickScript, enabled: Boolean, onEdit: (String) -> Unit,
     onShow: (String) -> Unit, onDelete: (String) -> Unit) {
+    val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().clickable(enabled = enabled && !script.builtIn) { onEdit(script.id) }
         .heightIn(min = 84.dp).padding(start = 4.dp, top = 12.dp, bottom = 12.dp),
@@ -856,23 +857,23 @@ private fun ScriptRow(script: ClickScript, enabled: Boolean, onEdit: (String) ->
         Icon(Icons.Outlined.Layers, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(script.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+            Text(script.displayName(context), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
                 maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Text(listOfNotNull(if (script.builtIn) "内置" else null, "${script.steps.size} 个动作",
-                if (script.loopCount == 0) "持续循环" else "${script.loopCount} 次循环").joinToString(" · "),
+            Text(listOfNotNull(if (script.builtIn) context.getString(R.string.ui_built_in) else null, context.getString(R.string.ui_actions_2, script.steps.size),
+                if (script.loopCount == 0) context.getString(R.string.ui_repeat_continuously) else context.getString(R.string.ui_loops, script.loopCount)).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         IconButton(enabled = enabled, onClick = { onShow(script.id) }) {
-            Icon(Icons.AutoMirrored.Outlined.OpenInNew, "打开${script.name}浮窗", Modifier.size(20.dp),
+            Icon(Icons.AutoMirrored.Outlined.OpenInNew, context.getString(R.string.ui_open_floating_window_for, script.displayName(context)), Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.primary)
         }
         if (!script.builtIn) Box {
             IconButton(enabled = enabled, onClick = { menu = true }) {
-                Icon(Icons.Outlined.MoreVert, "${script.name}选项", Modifier.size(20.dp))
+                Icon(Icons.Outlined.MoreVert, context.getString(R.string.ui_options_for, script.displayName(context)), Modifier.size(20.dp))
             }
             DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; onEdit(script.id) })
-                DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                DropdownMenuItem(text = { Text(context.getString(R.string.ui_edit)) }, onClick = { menu = false; onEdit(script.id) })
+                DropdownMenuItem(text = { Text(context.getString(R.string.ui_delete), color = MaterialTheme.colorScheme.error) },
                     onClick = { menu = false; onDelete(script.id) })
             }
         }
@@ -904,34 +905,35 @@ internal fun Section(title: String, icon: ImageVector? = null, subtitle: String?
 @Composable
 private fun ScriptEditor(script: ClickScript, onChange: (ClickScript) -> Unit,
     onSave: () -> Unit, onShow: () -> Unit, onClose: () -> Unit, enabled: Boolean) {
+    val context = LocalContext.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         OutlinedTextField(value = script.name, onValueChange = { onChange(script.copy(name = it)) },
-            label = { Text("脚本名称") }, singleLine = true, enabled = enabled, modifier = Modifier.fillMaxWidth(),
+            label = { Text(context.getString(R.string.ui_script_name)) }, singleLine = true, enabled = enabled, modifier = Modifier.fillMaxWidth(),
             isError = script.name.isBlank() || script.name.length > 60)
-        NumberField("循环次数（0 为持续）", script.loopCount.toLong(), 0L..100_000L, enabled) { onChange(script.copy(loopCount = it.toInt())) }
-        NumberField("安全超时（分钟）", script.timeoutMinutes.toLong(), 1L..1_440L, enabled) { onChange(script.copy(timeoutMinutes = it.toInt())) }
-        Text("坐标方向：${if (script.orientation == 1) "竖屏" else "横屏"} · ${script.steps.size}/100 步",
+        NumberField(context.getString(R.string.ui_loop_count_0_continuous), script.loopCount.toLong(), 0L..100_000L, enabled) { onChange(script.copy(loopCount = it.toInt())) }
+        NumberField(context.getString(R.string.ui_safety_timeout_minutes), script.timeoutMinutes.toLong(), 1L..1_440L, enabled) { onChange(script.copy(timeoutMinutes = it.toInt())) }
+        Text(context.getString(R.string.ui_orientation_100_steps, if (script.orientation == 1) context.getString(R.string.ui_portrait) else context.getString(R.string.ui_landscape), script.steps.size),
             style = MaterialTheme.typography.bodySmall)
         FilledTonalButton(
             onClick = onShow,
             enabled = enabled,
             modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-        ) { Text("打开动作浮窗") }
-        if (script.steps.isEmpty()) Text("先在目标应用中选取动作位置，再返回设置延时。")
+        ) { Text(context.getString(R.string.ui_open_action_controls)) }
+        if (script.steps.isEmpty()) Text(context.getString(R.string.ui_select_action_positions_in_the_target_app_then_return_to_set_delays))
         script.steps.forEachIndexed { index, step ->
             key(step.id) {
                 HorizontalDivider()
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("动作 ${index + 1}", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(context.getString(R.string.ui_action, index + 1), fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     var menuExpanded by rememberSaveable(step.id) { mutableStateOf(false) }
                     Box {
                         IconButton(enabled = enabled, onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Outlined.MoreVert, "动作选项", Modifier.size(20.dp))
+                            Icon(Icons.Outlined.MoreVert, context.getString(R.string.ui_action_options), Modifier.size(20.dp))
                         }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
-                                text = { Text("上移") },
+                                text = { Text(context.getString(R.string.ui_move_up)) },
                                 leadingIcon = { Icon(Icons.Outlined.KeyboardArrowUp, null) },
                                 enabled = index > 0,
                                 onClick = {
@@ -941,7 +943,7 @@ private fun ScriptEditor(script: ClickScript, onChange: (ClickScript) -> Unit,
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("下移") },
+                                text = { Text(context.getString(R.string.ui_move_down)) },
                                 leadingIcon = { Icon(Icons.Outlined.KeyboardArrowDown, null) },
                                 enabled = index < script.steps.lastIndex,
                                 onClick = {
@@ -951,7 +953,7 @@ private fun ScriptEditor(script: ClickScript, onChange: (ClickScript) -> Unit,
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("移除") },
+                                text = { Text(context.getString(R.string.ui_remove)) },
                                 leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
                                 onClick = {
                                     onChange(script.copy(steps = script.steps.filterNot { it.id == step.id }))
@@ -970,31 +972,33 @@ private fun ScriptEditor(script: ClickScript, onChange: (ClickScript) -> Unit,
                     CoordinateField("Y（%）", step.y, enabled, Modifier.weight(1f)) { update(step.copy(y = it)) }
                 }
                 if (step.gestureType == GestureType.SWIPE) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CoordinateField("终点 X（%）", step.endX, enabled, Modifier.weight(1f)) { update(step.copy(endX = it)) }
-                    CoordinateField("终点 Y（%）", step.endY, enabled, Modifier.weight(1f)) { update(step.copy(endY = it)) }
+                    CoordinateField(context.getString(R.string.ui_end_x), step.endX, enabled, Modifier.weight(1f)) { update(step.copy(endX = it)) }
+                    CoordinateField(context.getString(R.string.ui_end_y), step.endY, enabled, Modifier.weight(1f)) { update(step.copy(endY = it)) }
                 }
-                NumberField("手势时长（毫秒）", step.durationMs, (if (step.gestureType == GestureType.LONG_PRESS) 500L else 40L)..10_000L, enabled) { update(step.copy(durationMs = it)) }
-                NumberField("动作完成后延时（毫秒）", step.delayMs, 0L..60_000L, enabled) { update(step.copy(delayMs = it)) }
+                NumberField(context.getString(R.string.ui_gesture_duration_ms), step.durationMs, (if (step.gestureType == GestureType.LONG_PRESS) 500L else 40L)..10_000L, enabled) { update(step.copy(durationMs = it)) }
+                NumberField(context.getString(R.string.ui_delay_after_action_ms), step.delayMs, 0L..60_000L, enabled) { update(step.copy(delayMs = it)) }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onSave, enabled = enabled) { Text("保存") }
-            TextButton(onClick = onClose, enabled = enabled) { Text("保存并收起") }
+            Button(onClick = onSave, enabled = enabled) { Text(context.getString(R.string.ui_save)) }
+            TextButton(onClick = onClose, enabled = enabled) { Text(context.getString(R.string.ui_save_and_close)) }
         }
     }
 }
 
 @Composable
 internal fun GestureChoices(selected: GestureType, values: List<GestureType>, enabled: Boolean, onChange: (GestureType) -> Unit) {
+    val context = LocalContext.current
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         values.forEach { type ->
-            FilterChip(selected = selected == type, onClick = { onChange(type) }, enabled = enabled, label = { Text(type.chinese()) })
+            FilterChip(selected = selected == type, onClick = { onChange(type) }, enabled = enabled, label = { Text(type.label(context)) })
         }
     }
 }
 
 @Composable
 internal fun NumberField(label: String, value: Long, range: LongRange, enabled: Boolean = true, onChange: (Long) -> Unit) {
+    val context = LocalContext.current
     var text by remember { mutableStateOf(value.toString()) }
     LaunchedEffect(value) { if ((text.toLongOrNull() ?: -1) != value) text = value.toString() }
     OutlinedTextField(value = text, onValueChange = {
@@ -1002,7 +1006,7 @@ internal fun NumberField(label: String, value: Long, range: LongRange, enabled: 
         onChange(it.toLongOrNull()?.coerceIn(-1, Int.MAX_VALUE.toLong()) ?: -1)
     }, label = { Text(label) }, singleLine = true, enabled = enabled, modifier = Modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        isError = value !in range, supportingText = if (value !in range) ({ Text("请输入 ${range.first}–${range.last}") }) else null)
+        isError = value !in range, supportingText = if (value !in range) ({ Text(context.getString(R.string.ui_enter, range.first, range.last)) }) else null)
 }
 
 @Composable

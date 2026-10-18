@@ -1,5 +1,8 @@
 package tech.hawkon.dotctrl.ui
 
+import tech.hawkon.dotctrl.R
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -47,6 +50,7 @@ import java.util.UUID
 internal fun SingleEditor(value: ClickSettings, library: PresetLibrary, onChange: (ClickSettings) -> Boolean,
     onPresetsChange: (PresetLibrary) -> Boolean, onPickPosition: (String, ScreenPoint?) -> Boolean,
     enabled: Boolean, cardMinHeight: Dp) {
+    val context = LocalContext.current
     var dialog by remember { mutableStateOf<String?>(null) }
     var modeReturnDialog by remember { mutableStateOf<String?>(null) }
     var modeEditorCanSaveAsPreset by remember { mutableStateOf(false) }
@@ -83,7 +87,7 @@ internal fun SingleEditor(value: ClickSettings, library: PresetLibrary, onChange
     }
     // Stop exposing editable dialogs if a task is started from the floating controls.
     LaunchedEffect(enabled) { if (!enabled) dialog = null }
-    WorkbenchCard("点击位置", library.positionName(value), enabled, cardMinHeight, onSelect = { dialog = "position" }) {
+    WorkbenchCard(context.getString(R.string.ui_click_position), library.positionLabel(context, value), enabled, cardMinHeight, onSelect = { dialog = "position" }) {
         Row(Modifier.fillMaxWidth().heightIn(min = positionContentHeight), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             if (value.positionSet) PositionThumbnail(ScreenPoint(value.x, value.y, value.orientation),
@@ -95,12 +99,12 @@ internal fun SingleEditor(value: ClickSettings, library: PresetLibrary, onChange
             }
             Column(Modifier.weight(1f).heightIn(min = positionContentHeight), verticalArrangement = Arrangement.SpaceBetween) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(if (value.positionSet) "已选位置" else "还未选择位置",
+                    Text(if (value.positionSet) context.getString(R.string.ui_position_selected) else context.getString(R.string.ui_no_position_selected),
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                    if (value.positionSet) Text(if (value.orientation == 1) "竖屏" else "横屏",
+                    if (value.positionSet) Text(if (value.orientation == 1) context.getString(R.string.ui_portrait) else context.getString(R.string.ui_landscape),
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
                 }
-                WorkbenchEditButton(if (value.positionSet) "重新选点" else "屏幕选点", Icons.Outlined.TouchApp,
+                WorkbenchEditButton(if (value.positionSet) context.getString(R.string.ui_pick_again) else context.getString(R.string.ui_pick_on_screen), Icons.Outlined.TouchApp,
                     enabled = enabled, onClick = { beginPositionPick(editExisting = selectedPosition != null) },
                     modifier = Modifier.align(Alignment.End))
             }
@@ -141,29 +145,29 @@ internal fun SingleEditor(value: ClickSettings, library: PresetLibrary, onChange
         }
         positionPresetBeingEditedId = null
     }
-    WorkbenchCard("点击模式", library.modeName(value), enabled, cardMinHeight, onSelect = { dialog = "modes" }) {
+    WorkbenchCard(context.getString(R.string.ui_click_mode), library.modeLabel(context, value), enabled, cardMinHeight, onSelect = { dialog = "modes" }) {
         Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            ClickMetric("点击间隔", mode.intervalMs.toString(), "ms", Modifier.weight(1f))
-            ClickMetric(if (mode.continuous) "运行方式" else "点击次数",
-                if (mode.continuous) "持续" else mode.repeatCount.toString(),
-                if (mode.continuous) null else "次", Modifier.weight(1f))
+            ClickMetric(context.getString(R.string.ui_click_interval), mode.intervalMs.toString(), "ms", Modifier.weight(1f))
+            ClickMetric(if (mode.continuous) context.getString(R.string.ui_run_mode) else context.getString(R.string.ui_click_count),
+                if (mode.continuous) context.getString(R.string.ui_continuous) else mode.repeatCount.toString(),
+                if (mode.continuous) null else context.getString(R.string.ui_times), Modifier.weight(1f))
         }
         ModeCardFooter(mode, enabled, onEdit = {
             beginModeEdit(editExisting = selectedSavedMode != null)
         })
     }
     when (dialog) {
-        "position" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text("点击位置") },
+        "position" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text(context.getString(R.string.ui_click_position)) },
             text = {
                 Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()).selectableGroup()) {
                     library.positions.forEach { preset ->
-                        PresetChoiceRow(preset.name, positionSummary(preset),
+                        PresetChoiceRow(preset.name, positionSummary(context, preset),
                             selected = preset.id == selectedPosition?.id, enabled = enabled,
                             onClick = { if (onChange(preset.applyTo(value))) dialog = null })
                     }
                     PresetChoiceRow(
-                        "自定义",
-                        "选择位置后，可仅应用或保存为常用",
+                        context.getString(R.string.ui_custom),
+                        context.getString(R.string.ui_apply_a_position_directly_or_save_it_as_a_preset),
                         selected = selectedPosition == null,
                         enabled = enabled,
                         onClick = { beginPositionPick(editExisting = false) },
@@ -173,16 +177,16 @@ internal fun SingleEditor(value: ClickSettings, library: PresetLibrary, onChange
             confirmButton = { TextButton(onClick = {
                 beginPositionPick(editExisting = selectedPosition != null)
             }, enabled = enabled) {
-                Text(if (selectedPosition != null) "调整当前位置" else "重新选点")
+                Text(if (selectedPosition != null) context.getString(R.string.ui_adjust_current_position) else context.getString(R.string.ui_pick_again))
             } },
-            dismissButton = { TextButton(onClick = { dialog = null }) { Text("关闭") } })
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text(context.getString(R.string.ui_close)) } })
         "customPositionChoice" -> pendingPositionPoint?.let { point ->
             AlertDialog(onDismissRequest = { dialog = "position" },
-                title = { Text("自定义点击位置") },
+                title = { Text(context.getString(R.string.ui_custom_click_position)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SelectedPositionPreview(point)
-                        Text("这个位置只用于当前配置，或保存后作为常用位置。",
+                        Text(context.getString(R.string.ui_use_this_position_for_the_current_configuration_or_save_it_as_a_preset),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     }
                 },
@@ -205,7 +209,7 @@ internal fun SingleEditor(value: ClickSettings, library: PresetLibrary, onChange
         "namePosition" -> pendingPositionPoint?.let { point ->
             PositionEditorDialog(
                 initial = PositionPreset(id = customPositionDraftId ?: "custom-position-draft",
-                    name = "常用位置 ${library.positions.size + 1}",
+                    name = context.getString(R.string.ui_position, library.positions.size + 1),
                     x = point.x, y = point.y, orientation = point.orientation),
                 onDismiss = { dialog = "customPositionChoice" },
                 onSave = { preset ->
@@ -218,15 +222,15 @@ internal fun SingleEditor(value: ClickSettings, library: PresetLibrary, onChange
                 },
             )
         }
-        "modes" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text("点击模式") },
+        "modes" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text(context.getString(R.string.ui_click_mode)) },
             text = {
                 Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()).selectableGroup()) {
                     library.allModes.forEach { preset ->
-                        PresetChoiceRow(preset.name, modeSummary(preset.mode),
+                        PresetChoiceRow(preset.displayName(context), modeSummary(context, preset.mode),
                             selected = preset.id == selectedMode?.id, enabled = enabled,
                             onClick = { if (onChange(preset.mode.applyTo(value))) dialog = null })
                     }
-                    PresetChoiceRow("自定义", if (selectedMode == null) modeSummary(mode) else "设置间隔、次数和时长",
+                    PresetChoiceRow(context.getString(R.string.ui_custom), if (selectedMode == null) modeSummary(context, mode) else context.getString(R.string.ui_set_interval_count_and_duration),
                         selected = selectedMode == null, enabled = enabled, onClick = {
                             beginModeEdit(editExisting = false)
                         })
@@ -235,14 +239,14 @@ internal fun SingleEditor(value: ClickSettings, library: PresetLibrary, onChange
             confirmButton = { TextButton(onClick = {
                 beginModeEdit(editExisting = selectedSavedMode != null)
             }, enabled = enabled) {
-                Text(if (selectedSavedMode != null) "调整当前模式" else "调整自定义")
+                Text(if (selectedSavedMode != null) context.getString(R.string.ui_adjust_current_mode) else context.getString(R.string.ui_adjust_custom_mode))
             } },
-            dismissButton = { TextButton(onClick = { dialog = null }) { Text("关闭") } })
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text(context.getString(R.string.ui_close)) } })
         "mode" -> ModeEditorDialog(
             initial = mode,
             title = if (modePresetBeingEditedId != null) {
-                "调整“${selectedSavedMode?.name ?: "当前模式"}”"
-            } else "自定义点击模式",
+                context.getString(R.string.ui_adjust, selectedSavedMode?.name ?: context.getString(R.string.ui_current_mode))
+            } else context.getString(R.string.ui_custom_click_mode),
             allowSaveAsPreset = modeEditorCanSaveAsPreset,
             onDismiss = { dialog = modeReturnDialog }, onSave = { updated, name ->
                 if (enabled) {
@@ -267,19 +271,20 @@ internal fun SingleEditor(value: ClickSettings, library: PresetLibrary, onChange
 
 @Composable
 private fun ModeCardFooter(mode: ClickMode, enabled: Boolean, onEdit: () -> Unit) {
+    val context = LocalContext.current
     val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Keep both the timeout and the action readable on narrow screens or with larger text.
         if (maxWidth < 264.dp * fontScale) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ModeRunSummary(mode)
-                WorkbenchEditButton("调整参数", Icons.Outlined.Tune, enabled, onEdit, Modifier.align(Alignment.End))
+                WorkbenchEditButton(context.getString(R.string.ui_adjust_settings), Icons.Outlined.Tune, enabled, onEdit, Modifier.align(Alignment.End))
             }
         } else {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ModeRunSummary(mode, Modifier.weight(1f))
-                WorkbenchEditButton("调整参数", Icons.Outlined.Tune, enabled, onEdit)
+                WorkbenchEditButton(context.getString(R.string.ui_adjust_settings), Icons.Outlined.Tune, enabled, onEdit)
             }
         }
     }
@@ -287,10 +292,11 @@ private fun ModeCardFooter(mode: ClickMode, enabled: Boolean, onEdit: () -> Unit
 
 @Composable
 private fun ModeRunSummary(mode: ClickMode, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (mode.gestureType == GestureType.LONG_PRESS) Text("长按 ${mode.gestureDurationMs} ms",
+        if (mode.gestureType == GestureType.LONG_PRESS) Text(context.getString(R.string.ui_hold_for_ms, mode.gestureDurationMs),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
-        Text("${mode.timeoutMinutes} 分钟自动停止",
+        Text(context.getString(R.string.ui_stop_automatically_after_min, mode.timeoutMinutes),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
     }
 }
@@ -356,21 +362,22 @@ private fun PresetChoiceRow(name: String, detail: String, selected: Boolean, ena
     }
 }
 
-internal fun modeSummary(mode: ClickMode): String =
-    "${mode.intervalMs} ms 间隔 · ${if (mode.continuous) "持续点击" else "${mode.repeatCount} 次"}"
+internal fun modeSummary(context: Context, mode: ClickMode): String =
+    context.getString(R.string.ui_ms_interval, mode.intervalMs, if (mode.continuous) context.getString(R.string.ui_continuous_clicks) else context.getString(R.string.ui_clicks, mode.repeatCount))
 
-private fun positionSummary(position: PositionPreset): String =
-    "${if (position.orientation == 1) "竖屏" else "横屏"} · ${(position.x * 100).toInt()}%, ${(position.y * 100).toInt()}%"
+private fun positionSummary(context: Context, position: PositionPreset): String =
+    "${if (position.orientation == 1) context.getString(R.string.ui_portrait) else context.getString(R.string.ui_landscape)} · ${(position.x * 100).toInt()}%, ${(position.y * 100).toInt()}%"
 
-private fun positionSummary(settings: ClickSettings): String =
+private fun positionSummary(context: Context, settings: ClickSettings): String =
     if (settings.positionSet) {
-        "${if (settings.orientation == 1) "竖屏" else "横屏"} · ${(settings.x * 100).toInt()}%, ${(settings.y * 100).toInt()}%"
-    } else "还未选择位置"
+        "${if (settings.orientation == 1) context.getString(R.string.ui_portrait) else context.getString(R.string.ui_landscape)} · ${(settings.x * 100).toInt()}%, ${(settings.y * 100).toInt()}%"
+    } else context.getString(R.string.ui_no_position_selected)
 
 @Composable
 internal fun PresetSettings(library: PresetLibrary, current: ClickSettings, enabled: Boolean,
     scriptCount: Int = 0, onScriptsClick: () -> Unit = {},
     onChange: (PresetLibrary) -> Boolean, onPickPosition: (String, ScreenPoint?) -> Boolean) {
+    val context = LocalContext.current
     var page by rememberSaveable { mutableStateOf<String?>(null) }
     // Keep the unsaved name and point across the trip to another app and screen rotation.
     var positionJson by rememberSaveable { mutableStateOf<String?>(null) }
@@ -408,31 +415,31 @@ internal fun PresetSettings(library: PresetLibrary, current: ClickSettings, enab
             RuntimeState.consumePositionPick(result.requestId)
         }
     }
-    SettingsRow("点击位置", "${library.positions.size} 个", Icons.Outlined.MyLocation, enabled) { page = "positions" }
-    SettingsRow("点击模式", "${library.allModes.size} 个", Icons.Outlined.Tune, enabled) { page = "modes" }
-    SettingsRow("脚本动作", "$scriptCount 个", Icons.Outlined.Layers, enabled, onScriptsClick)
+    SettingsRow(context.getString(R.string.ui_click_position), context.getString(R.string.ui_item_count, library.positions.size), Icons.Outlined.MyLocation, enabled) { page = "positions" }
+    SettingsRow(context.getString(R.string.ui_click_mode), context.getString(R.string.ui_item_count, library.allModes.size), Icons.Outlined.Tune, enabled) { page = "modes" }
+    SettingsRow(context.getString(R.string.ui_script_actions), context.getString(R.string.ui_item_count, scriptCount), Icons.Outlined.Layers, enabled, onScriptsClick)
     if (page != null && position == null && pickRequestId == null && mode == null && deletePosition == null && deleteMode == null) {
         val positions = page == "positions"
-        AlertDialog(onDismissRequest = { page = null }, title = { Text(if (positions) "点击位置" else "点击模式") },
+        AlertDialog(onDismissRequest = { page = null }, title = { Text(if (positions) context.getString(R.string.ui_click_position) else context.getString(R.string.ui_click_mode)) },
             text = {
                 Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
-                    if (positions && library.positions.isEmpty()) Text("还没有保存的位置", color = MaterialTheme.colorScheme.secondary)
+                    if (positions && library.positions.isEmpty()) Text(context.getString(R.string.ui_no_saved_positions_yet), color = MaterialTheme.colorScheme.secondary)
                     if (positions) library.positions.forEach { item ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { positionJson = AppJson.format.encodeToString(item) }, modifier = Modifier.weight(1f)) {
                                 Text(item.name, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            TextButton(onClick = { deletePosition = item }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                            TextButton(onClick = { deletePosition = item }) { Text(context.getString(R.string.ui_delete), color = MaterialTheme.colorScheme.error) }
                         }
                     } else library.allModes.forEach { item ->
                         val builtIn = item.id.startsWith("builtin-")
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { mode = if (builtIn) ModePreset(name = "${item.name}副本", mode = item.mode) else item },
+                            TextButton(onClick = { mode = if (builtIn) ModePreset(name = context.getString(R.string.ui_copy, item.displayName(context)), mode = item.mode) else item },
                                 modifier = Modifier.weight(1f)) {
-                                Text(item.name, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(item.displayName(context), modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            if (builtIn) Text("内置", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
-                            else TextButton(onClick = { deleteMode = item }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                            if (builtIn) Text(context.getString(R.string.ui_built_in), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                            else TextButton(onClick = { deleteMode = item }) { Text(context.getString(R.string.ui_delete), color = MaterialTheme.colorScheme.error) }
                         }
                     }
                     if (positions) FilledTonalButton(onClick = {
@@ -441,17 +448,17 @@ internal fun PresetSettings(library: PresetLibrary, current: ClickSettings, enab
                     }, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                         Icon(Icons.Outlined.TouchApp, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("在屏幕上选点")
+                        Text(context.getString(R.string.ui_pick_a_position_on_screen))
                     }
                 }
             },
             confirmButton = {
-                if (positions) TextButton(onClick = { page = null }) { Text("关闭") }
+                if (positions) TextButton(onClick = { page = null }) { Text(context.getString(R.string.ui_close)) }
                 else TextButton(onClick = { mode = ModePreset(name = "", mode = ClickMode.from(current)) }) {
-                    Icon(Icons.Outlined.Add, null, Modifier.size(18.dp)); Text("新建")
+                    Icon(Icons.Outlined.Add, null, Modifier.size(18.dp)); Text(context.getString(R.string.ui_new))
                 }
             },
-            dismissButton = { if (!positions) TextButton(onClick = { page = null }) { Text("关闭") } })
+            dismissButton = { if (!positions) TextButton(onClick = { page = null }) { Text(context.getString(R.string.ui_close)) } })
     }
     position?.let { initial ->
         PositionEditorDialog(initial, onDismiss = { positionJson = null }, onSave = { edited ->
@@ -470,48 +477,50 @@ internal fun PresetSettings(library: PresetLibrary, current: ClickSettings, enab
     }
     if (deletePosition != null || deleteMode != null) AlertDialog(
         onDismissRequest = { deletePosition = null; deleteMode = null },
-        title = { Text("删除“${deletePosition?.name ?: deleteMode?.name}”？") },
-        text = { Text("当前点击配置会保留。") },
+        title = { Text(context.getString(R.string.ui_delete_2, deletePosition?.name ?: deleteMode?.name)) },
+        text = { Text(context.getString(R.string.ui_your_current_click_settings_will_be_kept)) },
         confirmButton = { TextButton(onClick = {
             if (onChange(library.copy(positions = library.positions.filterNot { it.id == deletePosition?.id },
                     modes = library.modes.filterNot { it.id == deleteMode?.id }))) {
                 deletePosition = null; deleteMode = null
             }
-        }) { Text("删除") } },
-        dismissButton = { TextButton(onClick = { deletePosition = null; deleteMode = null }) { Text("取消") } })
+        }) { Text(context.getString(R.string.ui_delete)) } },
+        dismissButton = { TextButton(onClick = { deletePosition = null; deleteMode = null }) { Text(context.getString(R.string.ui_cancel)) } })
 }
 
 @Composable
 private fun PositionEditorDialog(initial: PositionPreset, onDismiss: () -> Unit, onSave: (PositionPreset) -> Unit,
     onPick: ((PositionPreset) -> Unit)? = null) {
+    val context = LocalContext.current
     var name by rememberSaveable(initial.id, initial.x, initial.y, initial.orientation) { mutableStateOf(initial.name) }
     var error by remember { mutableStateOf<String?>(null) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("保存点击位置") }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(context.getString(R.string.ui_save_click_position)) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(value = name, onValueChange = { name = it; error = null }, label = { Text("位置名称") },
-                placeholder = { Text("例如：确认按钮") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = name, onValueChange = { name = it; error = null }, label = { Text(context.getString(R.string.ui_position_name)) },
+                placeholder = { Text(context.getString(R.string.ui_e_g_confirm_button)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             SelectedPositionPreview(ScreenPoint(initial.x, initial.y, initial.orientation))
             if (onPick != null) FilledTonalButton(onClick = { onPick(initial.copy(name = name)) }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.TouchApp, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("在屏幕上重新选点")
+                Text(context.getString(R.string.ui_pick_again_on_screen))
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }, confirmButton = { TextButton(onClick = {
         runCatching { initial.copy(name = name.trim()).also { it.validate() } }
-            .onSuccess(onSave).onFailure { error = it.message }
-    }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+            .onSuccess(onSave).onFailure { error = context.errorText(it.message) }
+    }) { Text(context.getString(R.string.ui_save)) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(context.getString(R.string.ui_cancel)) } })
 }
 
 @Composable
 private fun SelectedPositionPreview(position: ScreenPoint, name: String? = null) {
+    val context = LocalContext.current
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         PositionThumbnail(position)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("已选位置", fontWeight = FontWeight.SemiBold)
-            val orientation = if (position.orientation == 1) "竖屏" else "横屏"
+            Text(context.getString(R.string.ui_position_selected), fontWeight = FontWeight.SemiBold)
+            val orientation = if (position.orientation == 1) context.getString(R.string.ui_portrait) else context.getString(R.string.ui_landscape)
             Text(listOfNotNull(name, orientation).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
@@ -536,9 +545,10 @@ private fun PositionThumbnail(position: ScreenPoint, shortSide: Dp = 44.dp, long
 }
 
 @Composable
-private fun ModeEditorDialog(initial: ClickMode, initialName: String? = null, title: String = "点击模式",
+private fun ModeEditorDialog(initial: ClickMode, initialName: String? = null, title: String? = null,
     allowSaveAsPreset: Boolean = true,
     onDismiss: () -> Unit, onSave: (ClickMode, String?) -> Unit) {
+    val context = LocalContext.current
     var draft by remember { mutableStateOf(initial) }
     var name by remember { mutableStateOf(initialName.orEmpty()) }
     var namingStep by remember { mutableStateOf(false) }
@@ -555,28 +565,28 @@ private fun ModeEditorDialog(initial: ClickMode, initialName: String? = null, ti
         runCatching { draft.validate() }.onSuccess {
             error = null
             onSave(draft, null)
-        }.onFailure { error = it.message }
+        }.onFailure { error = context.errorText(it.message) }
     }
     fun validateAndSave() {
         runCatching { draft.validate() }.onSuccess {
             error = null
             namingStep = true
-        }.onFailure { error = it.message }
+        }.onFailure { error = context.errorText(it.message) }
     }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(title ?: context.getString(R.string.ui_click_mode)) }, text = {
         Column(Modifier.heightIn(max = 400.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             GestureChoices(draft.gestureType, listOf(GestureType.TAP, GestureType.LONG_PRESS), true) {
                 draft = draft.copy(gestureType = it, gestureDurationMs = if (it == GestureType.LONG_PRESS) 600 else 80)
             }
-            NumberField("点击间隔（毫秒）", draft.intervalMs, 50L..60_000L) { draft = draft.copy(intervalMs = it) }
+            NumberField(context.getString(R.string.ui_click_interval_ms), draft.intervalMs, 50L..60_000L) { draft = draft.copy(intervalMs = it) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("持续点击", Modifier.weight(1f)); Switch(checked = draft.continuous, onCheckedChange = { draft = draft.copy(continuous = it) })
+                Text(context.getString(R.string.ui_continuous_clicks), Modifier.weight(1f)); Switch(checked = draft.continuous, onCheckedChange = { draft = draft.copy(continuous = it) })
             }
-            if (!draft.continuous) NumberField("点击次数", draft.repeatCount.toLong(), 1L..100_000L) { draft = draft.copy(repeatCount = it.toInt()) }
-            if (draft.gestureType == GestureType.LONG_PRESS || advanced) NumberField("按住时长（毫秒）", draft.gestureDurationMs,
+            if (!draft.continuous) NumberField(context.getString(R.string.ui_click_count), draft.repeatCount.toLong(), 1L..100_000L) { draft = draft.copy(repeatCount = it.toInt()) }
+            if (draft.gestureType == GestureType.LONG_PRESS || advanced) NumberField(context.getString(R.string.ui_hold_duration_ms), draft.gestureDurationMs,
                 (if (draft.gestureType == GestureType.LONG_PRESS) 500L else 40L)..10_000L) { draft = draft.copy(gestureDurationMs = it) }
-            TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "收起更多设置" else "更多设置 · ${draft.timeoutMinutes} 分钟自动停止") }
-            if (advanced) NumberField("自动停止（分钟）", draft.timeoutMinutes.toLong(), 1L..1_440L) { draft = draft.copy(timeoutMinutes = it.toInt()) }
+            TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) context.getString(R.string.ui_hide_advanced_settings) else context.getString(R.string.ui_more_settings_stop_after_min, draft.timeoutMinutes)) }
+            if (advanced) NumberField(context.getString(R.string.ui_auto_stop_minutes), draft.timeoutMinutes.toLong(), 1L..1_440L) { draft = draft.copy(timeoutMinutes = it.toInt()) }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }, confirmButton = {
@@ -589,12 +599,12 @@ private fun ModeEditorDialog(initial: ClickMode, initialName: String? = null, ti
         } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onDismiss) { Text("取消") }
+                TextButton(onClick = onDismiss) { Text(context.getString(R.string.ui_cancel)) }
                 Spacer(Modifier.width(8.dp))
                 if (initialName != null) {
-                    Button(onClick = ::validateAndSave) { Text("保存") }
+                    Button(onClick = ::validateAndSave) { Text(context.getString(R.string.ui_save)) }
                 } else {
-                    Button(onClick = ::validateAndApply) { Text("应用") }
+                    Button(onClick = ::validateAndApply) { Text(context.getString(R.string.ui_apply)) }
                 }
             }
         }
@@ -604,6 +614,7 @@ private fun ModeEditorDialog(initial: ClickMode, initialName: String? = null, ti
 /** The three choices intentionally stay on one line in both position and mode dialogs. */
 @Composable
 private fun CompactChoiceActions(onBack: () -> Unit, onApply: () -> Unit, onSave: () -> Unit) {
+    val context = LocalContext.current
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -613,47 +624,48 @@ private fun CompactChoiceActions(onBack: () -> Unit, onApply: () -> Unit, onSave
             onClick = onBack,
             modifier = Modifier.weight(0.78f),
             contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
-        ) { Text("返回", maxLines = 1, fontSize = 13.sp) }
+        ) { Text(context.getString(R.string.ui_back), maxLines = 1, fontSize = 13.sp) }
         TextButton(
             onClick = onApply,
             modifier = Modifier.weight(0.95f),
             contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
-        ) { Text("仅应用", maxLines = 1, fontSize = 13.sp) }
+        ) { Text(context.getString(R.string.ui_apply_only), maxLines = 1, fontSize = 13.sp) }
         Button(
             onClick = onSave,
             modifier = Modifier.weight(1.3f),
             contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
-        ) { Text("保存为常用", maxLines = 1, fontSize = 13.sp) }
+        ) { Text(context.getString(R.string.ui_save_preset), maxLines = 1, fontSize = 13.sp) }
     }
 }
 
 @Composable
 private fun ModeNameDialog(name: String, onNameChange: (String) -> Unit, mode: ClickMode,
     applyAfterSave: Boolean, onBack: () -> Unit, onSave: () -> Unit) {
+    val context = LocalContext.current
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     var error by remember { mutableStateOf<String?>(null) }
     fun save() {
         if (name.trim().isEmpty() || name.trim().length > 24) {
-            error = "名称须为 1–24 字符"
+            error = context.getString(R.string.ui_name_must_contain_1_24_characters)
         } else {
             keyboard?.hide()
             onSave()
         }
     }
     fun back() { keyboard?.hide(); onBack() }
-    AlertDialog(onDismissRequest = ::back, title = { Text("保存常用模式") }, text = {
+    AlertDialog(onDismissRequest = ::back, title = { Text(context.getString(R.string.ui_save_click_mode)) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(value = name, onValueChange = { onNameChange(it); error = null },
-                label = { Text("模式名称") }, placeholder = { Text("例如：快速连点") },
+                label = { Text(context.getString(R.string.ui_mode_name)) }, placeholder = { Text(context.getString(R.string.ui_e_g_rapid_clicks)) },
                 singleLine = true, isError = error != null,
                 supportingText = error?.let { message -> { Text(message) } },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { save() }),
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester))
-            Text(modeSummary(mode), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+            Text(modeSummary(context, mode), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
         }
-    }, confirmButton = { Button(onClick = ::save) { Text(if (applyAfterSave) "保存并应用" else "保存") } },
-        dismissButton = { TextButton(onClick = ::back) { Text("返回修改") } })
+    }, confirmButton = { Button(onClick = ::save) { Text(if (applyAfterSave) context.getString(R.string.ui_save_and_apply) else context.getString(R.string.ui_save)) } },
+        dismissButton = { TextButton(onClick = ::back) { Text(context.getString(R.string.ui_back_to_edit)) } })
     LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboard?.show() }
 }

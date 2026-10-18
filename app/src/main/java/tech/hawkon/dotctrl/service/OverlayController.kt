@@ -1,5 +1,6 @@
 package tech.hawkon.dotctrl.service
 
+import tech.hawkon.dotctrl.R
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.*
@@ -16,7 +17,7 @@ import kotlin.math.min
 
 /** One compact controller, with independent draggable point selection. */
 class OverlayController(
-    private val context: Context,
+    private val baseContext: Context,
     private val onStart: () -> Unit,
     private val onStop: () -> Unit,
     private val onClose: () -> Unit,
@@ -26,6 +27,8 @@ class OverlayController(
     private val onPosition: (PositionPreset) -> Unit,
     private val onMode: (ClickMode) -> Unit,
 ) {
+    private val displayPreferences = DisplayPreferences(baseContext)
+    private var context = displayPreferences.language.localizedContext(baseContext)
     private val manager = context.getSystemService(WindowManager::class.java)
     private val green = Color.rgb(23, 123, 101)
     private val red = Color.rgb(204, 65, 71)
@@ -55,7 +58,23 @@ class OverlayController(
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
         PixelFormat.TRANSLUCENT).apply {
         gravity = Gravity.TOP or Gravity.START
+        // Window alpha participates in Android's obscured-touch filtering.
+        // Apply the user's visual opacity to each view instead.
+        alpha = 1f
         if (Build.VERSION.SDK_INT >= 30) setFitInsetsTypes(0)
+    }
+
+    fun updateDisplaySettings(languageChanged: Boolean) {
+        if (languageChanged) {
+            context = displayPreferences.language.localizedContext(baseContext)
+            if (panel != null && pickerViews.isEmpty()) rebuild()
+        }
+        applyDisplayOpacity()
+    }
+
+    private fun applyDisplayOpacity() {
+        val alpha = displayPreferences.overlayAlpha
+        listOfNotNull(panel, markerLayer).plus(pickerViews).forEach { it.alpha = alpha }
     }
 
     fun show(script: ClickScript, isScript: Boolean, settings: ClickSettings, library: PresetLibrary) {
@@ -74,6 +93,7 @@ class OverlayController(
             setPadding(dp(8), dp(8), dp(8), dp(8))
             background = surface(white, 24)
             elevation = dp(8).toFloat()
+            alpha = displayPreferences.overlayAlpha
         }
         val header = row()
         runControl = SymbolButton(context, "play", green).apply {
@@ -82,7 +102,7 @@ class OverlayController(
         header.addView(runControl, LinearLayout.LayoutParams(dp(48), dp(48)))
         installDrag(runControl!!, root, parameters, clickable = true)
         if (!minimized) {
-            statusText = label("就绪", 12).apply { setPadding(dp(10), 0, dp(4), 0); maxLines = 2 }
+            statusText = label(context.getString(R.string.ui_ready_3), 12).apply { setPadding(dp(10), 0, dp(4), 0); maxLines = 2 }
             header.addView(statusText, LinearLayout.LayoutParams(0, dp(48), 1f))
             installDrag(statusText!!, root, parameters)
         }
@@ -120,8 +140,8 @@ class OverlayController(
                 runControl?.isEnabled = page == "main" || state.active
                 runControl?.alpha = if (page == "main" || state.active) 1f else .35f
                 statusText?.text = when {
-                    state.phase == RunPhase.RUNNING -> state.progress.ifBlank { "运行中" }
-                    state.phase == RunPhase.READY -> "准备就绪"
+                    state.phase == RunPhase.RUNNING -> state.progress.ifBlank { context.getString(R.string.ui_running) }
+                    state.phase == RunPhase.READY -> context.getString(R.string.ui_ready)
                     else -> state.message
                 }
             }
@@ -136,48 +156,48 @@ class OverlayController(
 
     private fun mainControls() = column().apply {
         if (scriptMode) {
-            addView(label(script?.name.orEmpty(), 13).apply { setPadding(dp(8), dp(6), dp(8), dp(8)) })
+            addView(label(script?.displayName(context).orEmpty(), 13).apply { setPadding(dp(8), dp(6), dp(8), dp(8)) })
             addView(row().apply {
-                GestureType.entries.forEach { type -> addView(compactButton(type.chinese()) {
+                GestureType.entries.forEach { type -> addView(compactButton(type.label(context)) {
                     if (RuntimeState.status.value.active) onStop()
                     onAdd(type)
                 }, compactWeighted()) }
             })
             script?.steps?.take(4)?.forEachIndexed { index, step ->
                 addView(row().apply {
-                    addView(label("${index + 1} · ${step.gestureType.chinese()}", 12), LinearLayout.LayoutParams(0, dp(36), 1f))
+                    addView(label("${index + 1} · ${step.gestureType.label(context)}", 12), LinearLayout.LayoutParams(0, dp(36), 1f))
                 }, LinearLayout.LayoutParams(-1, dp(38)).apply { topMargin = dp(2) })
             }
         } else {
-            addView(choice("位置", library.positionName(settings)) { navigate("positions") })
-            addView(choice("点击", library.modeName(settings)) { navigate("modes") }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
+            addView(choice(context.getString(R.string.ui_position_2), library.positionLabel(context, settings)) { navigate("positions") })
+            addView(choice(context.getString(R.string.ui_tap), library.modeLabel(context, settings)) { navigate("modes") }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
         }
         addView(row().apply {
-            addView(compactButton("返回") { onEditor() }, compactWeighted())
-            addView(compactButton("退出") { onClose() }, compactWeighted())
+            addView(compactButton(context.getString(R.string.ui_back)) { onEditor() }, compactWeighted())
+            addView(compactButton(context.getString(R.string.ui_exit)) { onClose() }, compactWeighted())
         }, LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(6) })
     }
 
     private fun positionChoices() = column().apply {
-        addView(button("‹  点击位置") { page = "main"; rebuild() })
+        addView(button(context.getString(R.string.ui_click_position_2)) { page = "main"; rebuild() })
         library.positions.forEach { preset ->
             addView(choice(if (preset.matches(settings)) "✓" else "", preset.name) { onPosition(preset) },
                 LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
         }
-        addView(button("＋  重新选点") { onPickSingle() }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
+        addView(button(context.getString(R.string.ui_pick_again_2)) { onPickSingle() }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
     }
 
     private fun modeChoices() = column().apply {
-        addView(button("‹  点击模式") { page = "main"; rebuild() })
+        addView(button(context.getString(R.string.ui_click_mode_2)) { page = "main"; rebuild() })
         library.allModes.forEach { preset ->
-            addView(choice(if (preset.mode == ClickMode.from(settings)) "✓" else "", preset.name) { onMode(preset.mode) },
+            addView(choice(if (preset.mode == ClickMode.from(settings)) "✓" else "", preset.displayName(context)) { onMode(preset.mode) },
                 LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
         }
-        addView(button("调整次数与间隔") { navigate("custom") }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
+        addView(button(context.getString(R.string.ui_adjust_count_and_interval)) { navigate("custom") }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
     }
 
     private fun customMode() = column().apply {
-        addView(button("‹  自定义点击") { page = "modes"; rebuild() })
+        addView(button(context.getString(R.string.ui_custom_clicks)) { page = "modes"; rebuild() })
         fun number(title: String, value: Long): EditText {
             addView(label(title, 12).apply { setPadding(dp(8), dp(10), 0, dp(4)) })
             return EditText(context).apply {
@@ -186,17 +206,17 @@ class OverlayController(
                 setPadding(dp(12), 0, dp(12), 0); background = surface(pale, 12)
             }.also { addView(it, LinearLayout.LayoutParams(-1, dp(48))) }
         }
-        val interval = number("点击间隔（毫秒）", settings.intervalMs)
-        val count = number("点击次数", settings.repeatCount.toLong())
+        val interval = number(context.getString(R.string.ui_click_interval_ms), settings.intervalMs)
+        val count = number(context.getString(R.string.ui_click_count), settings.repeatCount.toLong())
         val continuous = CheckBox(context).apply {
-            text = "持续点击"; isChecked = settings.continuous; setTextColor(ink)
+            text = context.getString(R.string.ui_continuous_clicks); isChecked = settings.continuous; setTextColor(ink)
             setOnCheckedChangeListener { _, checked -> count.isEnabled = !checked }
         }
         count.isEnabled = !settings.continuous
         addView(continuous, LinearLayout.LayoutParams(-1, dp(48)))
         val error = label("", 12).apply { setTextColor(red) }
         addView(error)
-        addView(button("应用") {
+        addView(button(context.getString(R.string.ui_apply)) {
             runCatching {
                 ClickMode.from(settings).copy(intervalMs = interval.text.toString().toLongOrNull() ?: -1,
                     repeatCount = if (continuous.isChecked) settings.repeatCount else count.text.toString().toIntOrNull() ?: -1,
@@ -204,7 +224,7 @@ class OverlayController(
             }.onSuccess { mode ->
                 context.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(interval.windowToken, 0)
                 onMode(mode)
-            }.onFailure { error.text = it.message }
+            }.onFailure { error.text = context.errorText(it.message) }
         }, LinearLayout.LayoutParams(-1, dp(48)))
     }
 
@@ -251,6 +271,7 @@ class OverlayController(
         val point = initial?.takeIf { it.orientation == area.orientation } ?: ScreenPoint(.5f, .5f, area.orientation)
         val pixels = CoordinateMapper.toPixels(point, area)
         val target = TargetView(context)
+        target.alpha = displayPreferences.overlayAlpha
         val targetParams = windowParams(dp(64), dp(64)).apply {
             x = pixels.first.toInt() - dp(32); y = pixels.second.toInt() - dp(32)
             flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
@@ -261,6 +282,7 @@ class OverlayController(
         pickerViews += target
         val toolbar = row().apply {
             setPadding(dp(8), dp(6), dp(6), dp(6)); background = surface(white, 24); elevation = dp(8).toFloat()
+            alpha = displayPreferences.overlayAlpha
         }
         val title = label(hint, 12).apply { maxLines = 2; setPadding(dp(8), 0, dp(4), 0) }
         toolbar.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f))
@@ -270,7 +292,7 @@ class OverlayController(
                 val location = IntArray(2); target.getLocationOnScreen(location)
                 val selected = CoordinateMapper.normalize(location[0] + target.width / 2f, location[1] + target.height / 2f, area)
                 cancelPick(notify = false)
-                addMarker(selected.x, selected.y, area, if (scriptMode) "已选" else "1")
+                addMarker(selected.x, selected.y, area, if (scriptMode) context.getString(R.string.ui_selected) else "1")
                 onSelected(selected)
             }
         }, LinearLayout.LayoutParams(dp(48), dp(48)))
@@ -297,7 +319,7 @@ class OverlayController(
         if (current.orientation != area.orientation) return
         current.steps.forEachIndexed { index, step ->
             addMarker(step.x, step.y, area, "${index + 1}")
-            if (step.gestureType == GestureType.SWIPE) addMarker(step.endX, step.endY, area, "${index + 1}终", step.x to step.y)
+            if (step.gestureType == GestureType.SWIPE) addMarker(step.endX, step.endY, area, context.getString(R.string.ui_end, index + 1), step.x to step.y)
         }
     }
 
@@ -309,10 +331,11 @@ class OverlayController(
             val params = windowParams(-1, -1).apply {
                 flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 // Android 12+ permits touches through this single, non-touchable layer.
-                alpha = 0.6f
+                alpha = .6f
             }
             manager.addView(view, params)
             markerLayer = view
+            view.alpha = displayPreferences.overlayAlpha
         }
         markerLayer?.invalidate()
     }
@@ -341,7 +364,7 @@ class OverlayController(
     private fun weighted() = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(2); marginEnd = dp(2) }
     private fun compactWeighted() = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(2); marginEnd = dp(2) }
     private fun label(text: String, size: Int) = TextView(context).apply { this.text = text; textSize = size.toFloat(); setTextColor(ink); gravity = Gravity.CENTER_VERTICAL }
-    private fun choice(title: String, value: String, action: () -> Unit): View = button("${if (title.isBlank()) "" else "$title："}$value  ›", action).apply {
+    private fun choice(title: String, value: String, action: () -> Unit): View = button("${if (title.isBlank()) "" else "${title}："}${value}  ›", action).apply {
         gravity = Gravity.CENTER_VERTICAL; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
     }
     private fun button(text: String, action: () -> Unit) = Button(context).apply {
@@ -366,7 +389,7 @@ private class SymbolButton(context: Context, private var symbol: String, private
         updateDescription(); invalidate()
     }
     private fun updateDescription() {
-        contentDescription = when (symbol) { "play" -> "开始"; "stop" -> "停止"; "plus" -> "展开"; "minus" -> "收起"; "check" -> "确认位置"; else -> "取消选点" }
+        contentDescription = when (symbol) { "play" -> context.getString(R.string.ui_start); "stop" -> context.getString(R.string.ui_stop); "plus" -> context.getString(R.string.ui_expand); "minus" -> context.getString(R.string.ui_collapse); "check" -> context.getString(R.string.ui_confirm_position); else -> context.getString(R.string.ui_cancel_position_selection) }
     }
     override fun onDraw(canvas: Canvas) {
         val d = resources.displayMetrics.density
@@ -390,7 +413,7 @@ private class SymbolButton(context: Context, private var symbol: String, private
 
 private class TargetView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    init { contentDescription = "拖动准星选择位置" }
+    init { contentDescription = context.getString(R.string.ui_drag_the_crosshair_to_select_a_position) }
     override fun onDraw(canvas: Canvas) {
         val d = resources.displayMetrics.density; val x = width/2f; val y = height/2f
         paint.style = Paint.Style.STROKE; paint.strokeWidth = 5*d; paint.color = Color.WHITE
@@ -426,8 +449,8 @@ private class MarkerLayer(context: Context, private val markers: List<Marker>) :
     }
 }
 
-fun GestureType.chinese(): String = when (this) {
-    GestureType.TAP -> "点击"
-    GestureType.LONG_PRESS -> "长按"
-    GestureType.SWIPE -> "滑动"
+fun GestureType.label(context: Context): String = when (this) {
+    GestureType.TAP -> context.getString(R.string.ui_tap)
+    GestureType.LONG_PRESS -> context.getString(R.string.ui_long_press)
+    GestureType.SWIPE -> context.getString(R.string.ui_swipe)
 }

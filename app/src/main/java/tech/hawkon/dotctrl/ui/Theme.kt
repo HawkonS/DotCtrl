@@ -5,11 +5,13 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.annotation.StringRes
+import tech.hawkon.dotctrl.R
 
-enum class ThemeMode(val storageValue: String, val label: String) {
-    SYSTEM("system", "跟随系统"),
-    LIGHT("light", "浅色"),
-    DARK("dark", "深色"),
+enum class ThemeMode(val storageValue: String, @StringRes val labelRes: Int) {
+    SYSTEM("system", R.string.theme_system),
+    LIGHT("light", R.string.theme_light),
+    DARK("dark", R.string.theme_dark),
     ;
 
     companion object {
