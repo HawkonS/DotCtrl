@@ -212,6 +212,10 @@ class OverlayController(
     }
 
     private fun updateRuntimeControls(state: RuntimeStatus) {
+        // A full-screen application overlay marks touches as obscured even when
+        // it is not touchable. Hide the coordinate layer before the countdown
+        // ends so target views with touch protection can receive our gestures.
+        markerLayer?.visibility = if (state.active) View.GONE else View.VISIBLE
         if (runControlWasActive && !state.active) lastRunEndedAt = SystemClock.uptimeMillis()
         runControlWasActive = state.active
         runControl?.apply {

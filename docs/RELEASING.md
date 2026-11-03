@@ -34,8 +34,19 @@ Debug 和正式版使用不同证书。已经安装 debug 包的设备，需要�
 ```bash
 adb shell am instrument -w \
   -e class 'tech.hawkon.dotctrl.updates.UpdateApkDeviceTest#verifiesRealApksAndSharesTheAcceptedFileWithTheInstaller' \
-  -e fixtureVersion 1.1.1 \
+  -e fixtureVersion 1.1.2 \
   tech.hawkon.dotctrl.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 该方法只校验和分享文件，不执行安装；没有 fixture 参数时跳过。在测试设备上，还可单独执行 `stagesCompletedUpdateForManualInstallerTest`，同时传入 `stageInstaller=true` 和 `fixtureVersion`，生成本地已完成的 DownloadManager 任务。重新打开应用后，可通过真实“立即安装”入口验证授权往返、取消重试和同签名覆盖升级，不必发布测试 Release。准备方法拒绝覆盖已有更新任务或文件。结束后单独执行 `cleansUpManualInstallerFixture`，传入 `cleanupFixture=true` 和相同版本，清理测试任务和 fixture。保留设备上的本地配置，不卸载主应用。
+
+### 真实点击验证
+
+测试 APK 中的 `GestureTargetActivity` 提供独立的触摸计数页，不包含在正式 APK 中。安装 `:app:assembleDebugAndroidTest` 生成的测试 APK 后，可运行：
+
+```bash
+adb shell am start -n tech.hawkon.dotctrl.test/tech.hawkon.dotctrl.GestureTargetActivity --ez rejectObscured true
+adb logcat -s DotCtrlGestureTarget:I
+```
+
+该模式使用 Android 的 `filterTouchesWhenObscured` 拒绝被浮窗遮挡的点击。使用已有坐标在计数页内启动任务，检查倒计时结束前无点击、结束后计数持续增加、单次停止后计数不再增加。运行时隐藏全屏坐标标记，停止后恢复；控制浮窗保持可操作。结束后退出计数页，卸载 `tech.hawkon.dotctrl.test` 即可移除测试组件，不卸载主应用。

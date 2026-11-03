@@ -47,6 +47,7 @@ class RunControlsTest {
     private lateinit var service: AutoClickAccessibilityService
     private lateinit var accessibility: ShadowAccessibilityService
     private lateinit var run: View
+    private lateinit var markers: View
 
     @Before fun prepareRun() {
         val windowConfiguration = ReflectionHelpers.getField<Any>(context.resources.configuration, "windowConfiguration")
@@ -67,6 +68,7 @@ class RunControlsTest {
         ShadowLooper.idleMainLooper()
         val manager = Shadow.extract<ShadowWindowManagerImpl>(service.getSystemService(WindowManager::class.java))
         val panel = manager.views.filterIsInstance<LinearLayout>().single()
+        markers = manager.views.single { it !is LinearLayout }
         run = (panel.getChildAt(0) as LinearLayout).getChildAt(0)
     }
 
@@ -78,6 +80,7 @@ class RunControlsTest {
     }
 
     @Test fun countdownShowsEachSecondAndDispatchesOnlyAfterThreeFullSeconds() {
+        val startedAt = SystemClock.uptimeMillis()
         run.performClick()
         ShadowLooper.idleMainLooper()
         for (seconds in 3 downTo 1) {
@@ -85,7 +88,10 @@ class RunControlsTest {
             assertEquals(seconds, RuntimeState.status.value.countdownSeconds)
             assertEquals("$seconds 秒后开始，点击取消", run.contentDescription)
             assertTrue(accessibility.gesturesDispatched.isEmpty())
-            advance(999)
+            // Hiding the marker may schedule a view traversal during idle().
+            // Assert against the start time rather than adding that layout time.
+            val nextSecond = startedAt + (4 - seconds) * 1_000L
+            advance(nextSecond - 1 - SystemClock.uptimeMillis())
             assertEquals(seconds, RuntimeState.status.value.countdownSeconds)
             assertTrue(accessibility.gesturesDispatched.isEmpty())
             advance(1)
@@ -133,6 +139,20 @@ class RunControlsTest {
         assertEquals(RunPhase.STOPPED, RuntimeState.status.value.phase)
         assertEquals("开始", run.contentDescription)
         assertEquals(2, accessibility.gesturesDispatched.size)
+    }
+
+    @Test fun coordinateMarkersAreHiddenBeforeGesturesAndRestoredAfterStopping() {
+        assertEquals(View.VISIBLE, markers.visibility)
+        run.performClick()
+        ShadowLooper.idleMainLooper()
+        assertEquals(View.GONE, markers.visibility)
+        assertTrue(accessibility.gesturesDispatched.isEmpty())
+        advance(3_000)
+        assertEquals(1, accessibility.gesturesDispatched.size)
+        assertEquals(View.GONE, markers.visibility)
+        service.stop()
+        ShadowLooper.idleMainLooper()
+        assertEquals(View.VISIBLE, markers.visibility)
     }
 
     private fun advance(millis: Long) { ShadowLooper.getShadowMainLooper().idleFor(Duration.ofMillis(millis)) }
