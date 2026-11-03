@@ -11,6 +11,7 @@ data class RuntimeStatus(
     val phase: RunPhase = RunPhase.IDLE,
     val message: String = "先开启无障碍服务",
     val progress: String = "",
+    val countdownSeconds: Int = 0,
 ) {
     val active get() = phase == RunPhase.COUNTDOWN || phase == RunPhase.RUNNING
 }

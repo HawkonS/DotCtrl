@@ -51,6 +51,7 @@ Before sharing an APK, verify permission setup, single-point and script executio
 - The accessibility service dispatches taps, long presses, and swipes explicitly configured by the user. It does not read target-app text, accessibility nodes, or passwords, or record real touches or screens in other apps.
 - Configuration is stored only in app-private storage. Exported JSON contains coordinates and script timing; treat it as private configuration.
 - Use the app only in authorized environments. Do not use it for deception, cheating, privacy violations, or bypassing security mechanisms. Lock screens, secure surfaces, vendor restrictions, or target-app policies may prevent gesture dispatch; the project does not promise to bypass these restrictions.
+- Core features work offline. Checking for updates and downloading an APK contact GitHub only when requested. Coordinates, scripts, and local configuration are not uploaded. Updates are installed through the Android system installer.
 
 ## License
 

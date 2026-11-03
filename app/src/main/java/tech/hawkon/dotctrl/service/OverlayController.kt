@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.*
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.SystemClock
 import android.text.InputType
 import android.view.*
 import android.widget.*
@@ -36,7 +37,8 @@ class OverlayController(
     private val muted = Color.rgb(104, 122, 114)
     private val white = Color.rgb(252, 254, 253)
     private val pale = Color.rgb(237, 243, 239)
-    private var panel: View? = null
+    private var panel: LinearLayout? = null
+    private var bodyScroll: ScrollView? = null
     private val pickerViews = mutableListOf<View>()
     private var pickerCancel: (() -> Unit)? = null
     private var collector: Job? = null
@@ -50,6 +52,10 @@ class OverlayController(
     private var page = "main"
     private var statusText: TextView? = null
     private var runControl: SymbolButton? = null
+    private var toggleControl: SymbolButton? = null
+    private var runControlStateAlpha = 1f
+    private var runControlWasActive = false
+    private var lastRunEndedAt = Long.MIN_VALUE
     private val parameters = windowParams(dp(112), -2).apply { x = dp(12); y = dp(100) }
 
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
@@ -67,14 +73,27 @@ class OverlayController(
     fun updateDisplaySettings(languageChanged: Boolean) {
         if (languageChanged) {
             context = displayPreferences.language.localizedContext(baseContext)
-            if (panel != null && pickerViews.isEmpty()) rebuild()
+            if (panel != null && pickerViews.isEmpty()) refreshPanel()
         }
         applyDisplayOpacity()
     }
 
     private fun applyDisplayOpacity() {
         val alpha = displayPreferences.overlayAlpha
-        listOfNotNull(panel, markerLayer).plus(pickerViews).forEach { it.alpha = alpha }
+        panel?.let { applyViewOpacity(it, alpha) }
+        runControl?.alpha = alpha * runControlStateAlpha
+        markerLayer?.alpha = alpha
+        pickerViews.forEach { applyViewOpacity(it, alpha) }
+    }
+
+    private fun applyViewOpacity(view: View, alpha: Float) {
+        if (view is ViewGroup) {
+            view.alpha = 1f
+            view.background?.alpha = (alpha * 255).toInt()
+            for (index in 0 until view.childCount) applyViewOpacity(view.getChildAt(index), alpha)
+        } else {
+            view.alpha = alpha
+        }
     }
 
     fun show(script: ClickScript, isScript: Boolean, settings: ClickSettings, library: PresetLibrary) {
@@ -84,74 +103,134 @@ class OverlayController(
         scriptMode = isScript
         page = "main"
         renderMarkers(script)
-        rebuild()
+        refreshPanel()
     }
 
-    private fun rebuild() {
-        removePanel()
+    private fun createPanel(): LinearLayout {
         val root = column().apply {
             setPadding(dp(8), dp(8), dp(8), dp(8))
             background = surface(white, 24)
             elevation = dp(8).toFloat()
-            alpha = displayPreferences.overlayAlpha
         }
         val header = row()
         runControl = SymbolButton(context, "play", green).apply {
-            setOnClickListener { if (RuntimeState.status.value.active) onStop() else onStart() }
+            var stoppingTouch = false
+            setOnClickListener { if (stoppingTouch || RuntimeState.status.value.active) onStop() else onStart() }
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        // A physical touch can cancel an injected gesture before ACTION_UP.
+                        // Stop now and consume the release so it cannot become a new start.
+                        // Cancellation can also reach us before this DOWN is delivered.
+                        // Use the original touch time to preserve that press's stop intent.
+                        stoppingTouch = RuntimeState.status.value.active || runControlWasActive || event.downTime <= lastRunEndedAt
+                        if (stoppingTouch) view.performClick()
+                        stoppingTouch
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> stoppingTouch.also { stoppingTouch = false }
+                    else -> stoppingTouch
+                }
+            }
         }
         header.addView(runControl, LinearLayout.LayoutParams(dp(48), dp(48)))
-        installDrag(runControl!!, root, parameters, clickable = true)
-        if (!minimized) {
-            statusText = label(context.getString(R.string.ui_ready_3), 12).apply { setPadding(dp(10), 0, dp(4), 0); maxLines = 2 }
-            header.addView(statusText, LinearLayout.LayoutParams(0, dp(48), 1f))
-            installDrag(statusText!!, root, parameters)
+        statusText = label(context.getString(R.string.ui_ready_3), 12).apply {
+            setPadding(dp(10), 0, dp(4), 0); maxLines = 2
         }
-        val toggle = SymbolButton(context, if (minimized) "plus" else "minus", pale).apply {
-            setOnClickListener { minimized = !minimized; page = "main"; rebuild() }
+        header.addView(statusText, LinearLayout.LayoutParams(0, dp(48), 1f))
+        installDrag(statusText!!, root, parameters)
+        val toggle = SymbolButton(context, "plus", pale).apply {
+            setOnClickListener {
+                minimized = !minimized
+                val pageChanged = page != "main"
+                page = "main"
+                if (pageChanged) refreshPanel() else updatePanelLayout()
+            }
         }
+        toggleControl = toggle
         header.addView(toggle, LinearLayout.LayoutParams(dp(48), dp(48)))
         installDrag(toggle, root, parameters, clickable = true)
         root.addView(header)
-        if (!minimized) {
-            val body = when (page) {
-                "positions" -> positionChoices()
-                "modes" -> modeChoices()
-                "custom" -> customMode()
-                else -> mainControls()
-            }
-            val scroll = ScrollView(context).apply { isFillViewport = false; addView(body) }
-            val maxHeight = (context.screenArea().height - dp(220)).coerceAtLeast(dp(110)).coerceAtMost(dp(350))
-            body.measure(View.MeasureSpec.makeMeasureSpec(dp(244), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-            root.addView(scroll, LinearLayout.LayoutParams(-1, min(body.measuredHeight, maxHeight)).apply { topMargin = dp(6) })
+        bodyScroll = ScrollView(context).apply { isFillViewport = false }.also {
+            root.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
         panel = root
-        parameters.width = dp(if (minimized) 112 else 260).coerceAtMost(context.screenArea().width)
-        parameters.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            if (page == "custom" && !minimized) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        parameters.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        return root
+    }
+
+    private fun refreshPanel() {
+        val attach = panel == null
+        if (attach) createPanel()
+        val body = when (page) {
+            "positions" -> positionChoices()
+            "modes" -> modeChoices()
+            "custom" -> customMode()
+            else -> mainControls()
+        }
+        bodyScroll?.apply {
+            removeAllViews()
+            addView(body)
+            scrollTo(0, 0)
+        }
+        updatePanelLayout(attach)
+        if (attach) {
+            collector = CoroutineScope(Dispatchers.Main.immediate).launch {
+                RuntimeState.status.collect(::updateRuntimeControls)
+            }
+        }
+    }
+
+    private fun updatePanelLayout(attach: Boolean = false) {
+        val root = panel ?: return
+        statusText?.visibility = if (minimized) View.GONE else View.VISIBLE
+        toggleControl?.apply {
+            setExpanded(!minimized)
+            contentDescription = context.getString(if (minimized) R.string.ui_expand else R.string.ui_collapse)
+        }
+        bodyScroll?.visibility = if (minimized) View.GONE else View.VISIBLE
+        updateRuntimeControls(RuntimeState.status.value)
         val area = context.screenArea()
+        parameters.width = dp(if (minimized) 112 else 260).coerceAtMost(area.width)
+        parameters.flags = if (page == "custom" && !minimized) {
+            parameters.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+        } else {
+            parameters.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        parameters.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        bodyScroll?.let { scroll ->
+            val body = scroll.getChildAt(0) ?: return@let
+            val maxHeight = (area.height - dp(220)).coerceAtLeast(dp(110)).coerceAtMost(dp(350))
+            body.measure(View.MeasureSpec.makeMeasureSpec((parameters.width - dp(16)).coerceAtLeast(0), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            scroll.layoutParams = scroll.layoutParams.apply { height = min(body.measuredHeight, maxHeight) }
+        }
         parameters.x = parameters.x.coerceIn(area.left, (area.left + area.width - parameters.width).coerceAtLeast(area.left))
         root.measure(View.MeasureSpec.makeMeasureSpec(parameters.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         parameters.y = parameters.y.coerceIn(area.top, (area.top + area.height - root.measuredHeight).coerceAtLeast(area.top))
-        manager.addView(root, parameters)
-        collector = CoroutineScope(Dispatchers.Main.immediate).launch {
-            RuntimeState.status.collect { state ->
-                runControl?.setRunning(state.active, red, green)
-                runControl?.isEnabled = page == "main" || state.active
-                runControl?.alpha = if (page == "main" || state.active) 1f else .35f
-                statusText?.text = when {
-                    state.phase == RunPhase.RUNNING -> state.progress.ifBlank { context.getString(R.string.ui_running) }
-                    state.phase == RunPhase.READY -> context.getString(R.string.ui_ready)
-                    else -> state.message
-                }
-            }
+        applyDisplayOpacity()
+        // Keep the window surface and header attached while resizing or changing pages.
+        if (attach) manager.addView(root, parameters) else manager.updateViewLayout(root, parameters)
+    }
+
+    private fun updateRuntimeControls(state: RuntimeStatus) {
+        if (runControlWasActive && !state.active) lastRunEndedAt = SystemClock.uptimeMillis()
+        runControlWasActive = state.active
+        runControl?.apply {
+            setRunState(state, red, green)
+            isEnabled = page == "main" || state.active
+        }
+        runControlStateAlpha = if (page == "main" || state.active) 1f else .35f
+        runControl?.alpha = displayPreferences.overlayAlpha * runControlStateAlpha
+        statusText?.text = when {
+            state.phase == RunPhase.RUNNING -> state.progress.ifBlank { context.getString(R.string.ui_running) }
+            state.phase == RunPhase.READY -> context.getString(R.string.ui_ready)
+            else -> state.message
         }
     }
 
     private fun navigate(destination: String) {
         if (RuntimeState.status.value.active) onStop()
         page = destination
-        rebuild()
+        refreshPanel()
     }
 
     private fun mainControls() = column().apply {
@@ -179,7 +258,7 @@ class OverlayController(
     }
 
     private fun positionChoices() = column().apply {
-        addView(button(context.getString(R.string.ui_click_position_2)) { page = "main"; rebuild() })
+        addView(button(context.getString(R.string.ui_click_position_2)) { navigate("main") })
         library.positions.forEach { preset ->
             addView(choice(if (preset.matches(settings)) "✓" else "", preset.name) { onPosition(preset) },
                 LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
@@ -188,7 +267,7 @@ class OverlayController(
     }
 
     private fun modeChoices() = column().apply {
-        addView(button(context.getString(R.string.ui_click_mode_2)) { page = "main"; rebuild() })
+        addView(button(context.getString(R.string.ui_click_mode_2)) { navigate("main") })
         library.allModes.forEach { preset ->
             addView(choice(if (preset.mode == ClickMode.from(settings)) "✓" else "", preset.displayName(context)) { onMode(preset.mode) },
                 LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
@@ -197,7 +276,7 @@ class OverlayController(
     }
 
     private fun customMode() = column().apply {
-        addView(button(context.getString(R.string.ui_custom_clicks)) { page = "modes"; rebuild() })
+        addView(button(context.getString(R.string.ui_custom_clicks)) { navigate("modes") })
         fun number(title: String, value: Long): EditText {
             addView(label(title, 12).apply { setPadding(dp(8), dp(10), 0, dp(4)) })
             return EditText(context).apply {
@@ -271,7 +350,6 @@ class OverlayController(
         val point = initial?.takeIf { it.orientation == area.orientation } ?: ScreenPoint(.5f, .5f, area.orientation)
         val pixels = CoordinateMapper.toPixels(point, area)
         val target = TargetView(context)
-        target.alpha = displayPreferences.overlayAlpha
         val targetParams = windowParams(dp(64), dp(64)).apply {
             x = pixels.first.toInt() - dp(32); y = pixels.second.toInt() - dp(32)
             flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
@@ -282,7 +360,6 @@ class OverlayController(
         pickerViews += target
         val toolbar = row().apply {
             setPadding(dp(8), dp(6), dp(6), dp(6)); background = surface(white, 24); elevation = dp(8).toFloat()
-            alpha = displayPreferences.overlayAlpha
         }
         val title = label(hint, 12).apply { maxLines = 2; setPadding(dp(8), 0, dp(4), 0) }
         toolbar.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f))
@@ -299,8 +376,11 @@ class OverlayController(
         toolbar.addView(SymbolButton(context, "close", pale).apply { setOnClickListener { cancelPick() } }, LinearLayout.LayoutParams(dp(48), dp(48)))
         val toolbarParams = windowParams(dp(240).coerceAtMost(area.width), dp(60)).apply { x = area.left + dp(12); y = area.top + dp(16) }
         installDrag(title, toolbar, toolbarParams)
-        manager.addView(toolbar, toolbarParams)
+        pickerViews += target
         pickerViews += toolbar
+        applyViewOpacity(target, displayPreferences.overlayAlpha)
+        applyViewOpacity(toolbar, displayPreferences.overlayAlpha)
+        manager.addView(toolbar, toolbarParams)
     }
 
     fun cancelPick(notify: Boolean = true) {
@@ -356,7 +436,7 @@ class OverlayController(
     private fun removePanel() {
         collector?.cancel(); collector = null
         panel?.let { runCatching { manager.removeView(it) } }
-        panel = null; statusText = null; runControl = null
+        panel = null; bodyScroll = null; statusText = null; runControl = null; toggleControl = null
     }
     private fun surface(color: Int, radius: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
     private fun column() = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -384,21 +464,46 @@ private class SymbolButton(context: Context, private var symbol: String, private
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     init { isClickable = true; isFocusable = true; updateDescription() }
-    fun setRunning(running: Boolean, red: Int, green: Int) {
-        symbol = if (running) "stop" else "play"; color = if (running) red else green
+    fun setRunState(state: RuntimeStatus, red: Int, green: Int) {
+        val symbol = when (state.phase) {
+            RunPhase.COUNTDOWN -> state.countdownSeconds.coerceIn(1, 3).toString()
+            RunPhase.RUNNING -> "stop"
+            else -> "play"
+        }
+        setSymbol(symbol, if (state.phase == RunPhase.RUNNING) red else green)
+    }
+    fun setExpanded(expanded: Boolean) { setSymbol(if (expanded) "minus" else "plus", color) }
+    private fun setSymbol(symbol: String, color: Int) {
+        if (this.symbol == symbol && this.color == color) return
+        this.symbol = symbol; this.color = color
         updateDescription(); invalidate()
     }
     private fun updateDescription() {
-        contentDescription = when (symbol) { "play" -> context.getString(R.string.ui_start); "stop" -> context.getString(R.string.ui_stop); "plus" -> context.getString(R.string.ui_expand); "minus" -> context.getString(R.string.ui_collapse); "check" -> context.getString(R.string.ui_confirm_position); else -> context.getString(R.string.ui_cancel_position_selection) }
+        contentDescription = when (symbol) {
+            "1", "2", "3" -> context.getString(R.string.ui_countdown_tap_to_cancel, symbol.toInt())
+            "play" -> context.getString(R.string.ui_start)
+            "stop" -> context.getString(R.string.ui_stop)
+            "plus" -> context.getString(R.string.ui_expand)
+            "minus" -> context.getString(R.string.ui_collapse)
+            "check" -> context.getString(R.string.ui_confirm_position)
+            else -> context.getString(R.string.ui_cancel_position_selection)
+        }
     }
     override fun onDraw(canvas: Canvas) {
         val d = resources.displayMetrics.density
         val x = width / 2f; val y = height / 2f
         paint.color = color; paint.style = Paint.Style.FILL
         canvas.drawCircle(x, y, min(width, height) / 2f - 3 * d, paint)
-        paint.color = if (symbol == "play" || symbol == "stop" || symbol == "check") Color.WHITE else Color.rgb(48, 72, 60)
+        paint.color = when (symbol) {
+            "play", "stop", "check", "1", "2", "3" -> Color.WHITE
+            else -> Color.rgb(48, 72, 60)
+        }
         paint.strokeWidth = 2.3f * d; paint.strokeCap = Paint.Cap.ROUND
         when (symbol) {
+            "1", "2", "3" -> {
+                paint.textSize = 24 * d; paint.typeface = Typeface.DEFAULT_BOLD; paint.textAlign = Paint.Align.CENTER
+                canvas.drawText(symbol, x, y - (paint.ascent() + paint.descent()) / 2f, paint)
+            }
             "play" -> canvas.drawPath(path.apply { reset(); moveTo(x - 5*d, y - 9*d); lineTo(x + 9*d, y); lineTo(x - 5*d, y + 9*d); close() }, paint)
             "stop" -> canvas.drawRoundRect(x - 7*d, y - 7*d, x + 7*d, y + 7*d, 2*d, 2*d, paint)
             "plus", "minus" -> {

@@ -1,6 +1,8 @@
 package tech.hawkon.dotctrl
 
 import android.content.Context
+import android.content.ComponentName
+import android.provider.Settings
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -16,6 +18,7 @@ import org.robolectric.shadows.ShadowSettings
 import tech.hawkon.dotctrl.data.AppLanguage
 import tech.hawkon.dotctrl.data.DisplayPreferences
 import tech.hawkon.dotctrl.service.RuntimeState
+import tech.hawkon.dotctrl.service.AutoClickAccessibilityService
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "en-rUS-w400dp-h900dp")
@@ -29,13 +32,25 @@ class DisplaySettingsDialogTest {
         val store = DisplayPreferences(context)
         store.preferences.edit().clear().commit()
         ShadowSettings.setCanDrawOverlays(true)
+        val previousEnabledServices = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+        )
+        val accessibilityService = ComponentName(context, AutoClickAccessibilityService::class.java).flattenToString()
+        Settings.Secure.putString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+            accessibilityService,
+        )
         val previousStatus = RuntimeState.status.value
         RuntimeState.update { it.copy(connected = true) }
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup()
         try {
             compose.onNodeWithText("设置").performClick()
             compose.onNodeWithText("深色模式").assertDoesNotExist()
+            compose.onNodeWithText("跟随系统").assertDoesNotExist()
             compose.onNodeWithText("显示").performClick()
+            dialogText("跟随系统").assertIsSelected()
             dialogText("深色").performClick()
             dialogText("显示").assertIsDisplayed()
             compose.runOnIdle { assertEquals("dark", store.preferences.getString("theme_mode", null)) }
@@ -60,6 +75,11 @@ class DisplaySettingsDialogTest {
         } finally {
             activity.pause().stop().destroy()
             RuntimeState.update { previousStatus }
+            Settings.Secure.putString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                previousEnabledServices,
+            )
             ShadowSettings.setCanDrawOverlays(false)
         }
     }

@@ -165,13 +165,14 @@ class AutoClickAccessibilityService : AccessibilityService() {
         }
         environmentIssue()?.let { reportError(it); return }
         runJob = scope.launch {
-            RuntimeState.update { it.copy(phase = RunPhase.COUNTDOWN, progress = "") }
             for (count in 3 downTo 1) {
-                RuntimeState.update { it.copy(message = context.getString(R.string.ui_starting_in_s, count)) }
+                RuntimeState.update { it.copy(phase = RunPhase.COUNTDOWN, countdownSeconds = count,
+                    message = context.getString(R.string.ui_starting_in_s, count), progress = "") }
                 delay(1_000)
                 environmentIssue()?.let { reportError(it); return@launch }
             }
-            RuntimeState.update { it.copy(phase = RunPhase.RUNNING, message = if (scriptId == null) context.getString(R.string.ui_single_point) else script.displayName(context)) }
+            RuntimeState.update { it.copy(phase = RunPhase.RUNNING, countdownSeconds = 0,
+                message = if (scriptId == null) context.getString(R.string.ui_single_point) else script.displayName(context)) }
             val result = ScriptRunner(::dispatchStep, ::environmentIssue).run(script) { progress ->
                 RuntimeState.update { it.copy(progress = if (scriptId == null) context.getString(R.string.ui_clicks_completed, progress.completed)
                     else context.getString(R.string.ui_loop_step, progress.loop, progress.step, script.steps.size)) }
@@ -225,7 +226,7 @@ class AutoClickAccessibilityService : AccessibilityService() {
         runJob?.cancel()
         runJob = null
         initialArea = null
-        RuntimeState.update { it.copy(phase = RunPhase.STOPPED, message = reason, progress = "") }
+        RuntimeState.update { it.copy(phase = RunPhase.STOPPED, message = reason, progress = "", countdownSeconds = 0) }
     }
 
     private fun reportError(reason: String) {

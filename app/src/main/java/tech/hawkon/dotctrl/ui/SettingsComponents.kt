@@ -45,9 +45,11 @@ internal fun SettingsRow(
             fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(value, style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (value.isNotEmpty()) {
+                Text(value, style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             if (onClick != null) Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .6f))
             else Spacer(Modifier.width(18.dp))

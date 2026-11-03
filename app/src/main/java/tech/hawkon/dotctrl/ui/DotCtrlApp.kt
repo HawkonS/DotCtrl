@@ -25,7 +25,6 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Palette
@@ -57,8 +56,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import tech.hawkon.dotctrl.data.*
-import tech.hawkon.dotctrl.BuildConfig
 import tech.hawkon.dotctrl.service.*
+import tech.hawkon.dotctrl.updates.UpdateHost
+import tech.hawkon.dotctrl.updates.UpdateSettingsRow
+import tech.hawkon.dotctrl.updates.UpdateViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -70,6 +71,7 @@ private const val DOTCTRL_REPOSITORY_URL = "https://github.com/HawkonS/DotCtrl"
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DotCtrlApp(
+    updates: UpdateViewModel,
     onBackground: () -> Unit,
     onExit: () -> Unit,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
@@ -79,6 +81,7 @@ fun DotCtrlApp(
     overlayTransparency: Float = 0f,
     onOverlayTransparencyChange: (Float) -> Unit = {},
 ) {
+    UpdateHost(updates)
     val context = LocalContext.current
     val repository = remember { ScriptRepository(context) }
     val settingsStore = remember { ClickSettingsStore(context) }
@@ -102,6 +105,7 @@ fun DotCtrlApp(
     var scriptsPage by rememberSaveable { mutableStateOf(false) }
     var permissionPageManual by rememberSaveable { mutableStateOf(false) }
     var permissionReturnPage by rememberSaveable { mutableIntStateOf(0) }
+    var accessibilityAllowed by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
     val status by RuntimeState.status.collectAsStateWithLifecycle()
     val editRequest by RuntimeState.editRequests.collectAsStateWithLifecycle()
     var handledEdit by rememberSaveable { mutableIntStateOf(0) }
@@ -128,6 +132,7 @@ fun DotCtrlApp(
         }
             .onFailure { loadFailure = context.getString(R.string.ui_could_not_read_the_script_file_the_original_file_has_been_preserved, context.errorText(it.message)) }
         overlayAllowed = AndroidSettings.canDrawOverlays(context)
+        accessibilityAllowed = isAccessibilityServiceEnabled(context)
     }
     fun saveSingle(updated: ClickSettings): Boolean = runCatching {
         settingsStore.write(updated)
@@ -146,7 +151,7 @@ fun DotCtrlApp(
             .onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_could_not_save)) }
     }
     fun pickPresetPosition(requestId: String, initial: ScreenPoint?): Boolean {
-        if (!AndroidSettings.canDrawOverlays(context) || !status.connected) {
+        if (!AndroidSettings.canDrawOverlays(context) || !accessibilityAllowed || !status.connected) {
             page = 2
             permissionPageManual = false
             return false
@@ -162,7 +167,9 @@ fun DotCtrlApp(
     }
     fun showOverlay(id: String?, autoPickSingle: Boolean = false) {
         runCatching {
-            check(overlayAllowed && status.connected) { context.getString(R.string.ui_enable_accessibility_and_overlay_permissions_first) }
+            check(overlayAllowed && accessibilityAllowed && status.connected) {
+                context.getString(R.string.ui_enable_accessibility_and_overlay_permissions_first)
+            }
             if (id == null) settingsStore.write(single) else {
                 val script = scripts.first { it.id == id }
                 script.validate()
@@ -185,6 +192,16 @@ fun DotCtrlApp(
     val permissionSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         reload()
         returnedFromSettings = true
+    }
+
+    fun reconnectAccessibilityService() {
+        pendingPermission = "accessibility"
+        returnedFromSettings = false
+        runCatching { permissionSettings.launch(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            .onFailure {
+                pendingPermission = null
+                message(context.getString(R.string.ui_could_not_open_settings_grant_permissions_manually_in_system_settings))
+            }
     }
 
     val configImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -231,7 +248,8 @@ fun DotCtrlApp(
         }
     }
 
-    val permissionsReady = status.connected && overlayAllowed
+    val permissionsReady = accessibilityAllowed && status.connected && overlayAllowed
+    val accessibilityConnecting = accessibilityAllowed && !status.connected && overlayAllowed
     // Gate the content synchronously so a missing permission never flashes the workbench.
     val visiblePage = if (permissionsReady) page else 2
     LaunchedEffect(permissionsReady) {
@@ -247,16 +265,16 @@ fun DotCtrlApp(
             permissionDialog = null
         }
     }
-    LaunchedEffect(quickSetup, returnedFromSettings, pendingPermission, status.connected, overlayAllowed) {
+    LaunchedEffect(quickSetup, returnedFromSettings, pendingPermission, accessibilityAllowed, status.connected, overlayAllowed) {
         if (!quickSetup || !returnedFromSettings || pendingPermission == null) return@LaunchedEffect
         // The service may bind just after Android returns from its settings screen.
-        val granted = if (pendingPermission == "accessibility") status.connected else overlayAllowed
+        val granted = if (pendingPermission == "accessibility") accessibilityAllowed else overlayAllowed
         if (!granted) delay(800)
         returnedFromSettings = false
         pendingPermission = null
         if (granted) {
             permissionDialog = when {
-                !status.connected -> "accessibility"
+                !accessibilityAllowed -> "accessibility"
                 !overlayAllowed -> "overlay"
                 else -> null
             }
@@ -302,7 +320,7 @@ fun DotCtrlApp(
                         .onFailure { message(context.errorText(it.message) ?: context.getString(R.string.ui_correct_the_script_settings_first)) }
                 }) else null,
                 running = status.active,
-                permissionsReady = status.connected && overlayAllowed,
+                permissionsReady = permissionsReady,
                 onPermissions = {
                     permissionReturnPage = page
                     permissionPageManual = true
@@ -314,6 +332,7 @@ fun DotCtrlApp(
             if (visiblePage == 2) {
                 PermissionActions(
                     ready = permissionsReady,
+                    connecting = accessibilityConnecting,
                     onExit = onExit,
                     onContinue = {
                         if (permissionsReady) {
@@ -323,7 +342,11 @@ fun DotCtrlApp(
                             quickSetup = true
                             returnedFromSettings = false
                             pendingPermission = null
-                            permissionDialog = if (!status.connected) "accessibility" else "overlay"
+                            when {
+                                !accessibilityAllowed -> permissionDialog = "accessibility"
+                                !overlayAllowed -> permissionDialog = "overlay"
+                                accessibilityConnecting -> reconnectAccessibilityService()
+                            }
                         }
                     },
                 )
@@ -371,9 +394,14 @@ fun DotCtrlApp(
             ) {
                 if (visiblePage == 2) {
                     PermissionPage(
-                        accessibilityReady = status.connected,
+                        accessibilityReady = accessibilityAllowed,
+                        accessibilityConnecting = accessibilityConnecting,
                         overlayReady = overlayAllowed,
-                        onAccessibility = { quickSetup = false; permissionDialog = "accessibility" },
+                        onAccessibility = {
+                            quickSetup = false
+                            if (accessibilityAllowed && !status.connected) reconnectAccessibilityService()
+                            else permissionDialog = "accessibility"
+                        },
                         onOverlay = { quickSetup = false; permissionDialog = "overlay" },
                     )
                 } else {
@@ -403,6 +431,7 @@ fun DotCtrlApp(
                     }
                     } else {
                     SettingsPage(
+                        updates = updates,
                         scriptPage = scriptsPage,
                         onScriptsClick = { scriptsPage = true; editingId = null },
                         themeMode = themeMode,
@@ -563,7 +592,7 @@ private fun AppBottomBar(page: Int, onPageChange: (Int) -> Unit) {
 }
 
 @Composable
-private fun SettingsPage(scriptPage: Boolean, onScriptsClick: () -> Unit, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit,
+private fun SettingsPage(updates: UpdateViewModel, scriptPage: Boolean, onScriptsClick: () -> Unit, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit,
     language: AppLanguage, onLanguageChange: (AppLanguage) -> Unit,
     overlayTransparency: Float, onOverlayTransparencyChange: (Float) -> Unit,
     presets: PresetLibrary, current: ClickSettings, enabled: Boolean, onPresetsChange: (PresetLibrary) -> Boolean,
@@ -607,13 +636,13 @@ private fun SettingsPage(scriptPage: Boolean, onScriptsClick: () -> Unit, themeM
                 }
                 SettingsGroup(context.getString(R.string.ui_general)) {
                     SettingsRow(context.getString(R.string.ui_storage), context.getString(R.string.ui_on_this_device), Icons.Outlined.Storage) { storageDialog = true }
-                    SettingsRow(context.getString(R.string.ui_display), context.getString(themeMode.labelRes), Icons.Outlined.Palette) { appearanceDialog = true }
+                    SettingsRow(context.getString(R.string.ui_display), context.getString(R.string.ui_display_summary), Icons.Outlined.Palette) { appearanceDialog = true }
                 }
                 SettingsGroup(context.getString(R.string.ui_about)) {
-                    SettingsRow(context.getString(R.string.ui_version), BuildConfig.VERSION_NAME, Icons.Outlined.Info)
                     SettingsRow(context.getString(R.string.ui_source_code), "GitHub", Icons.Outlined.Code) {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DOTCTRL_REPOSITORY_URL)))
                     }
+                    UpdateSettingsRow(updates)
                 }
             }
         }
@@ -679,6 +708,7 @@ private fun HomeActionBar(scriptMode: Boolean, runLabel: String, onRun: () -> Un
 @Composable
 private fun PermissionPage(
     accessibilityReady: Boolean,
+    accessibilityConnecting: Boolean,
     overlayReady: Boolean,
     onAccessibility: () -> Unit,
     onOverlay: () -> Unit,
@@ -688,16 +718,24 @@ private fun PermissionPage(
     Column(Modifier.fillMaxWidth().padding(top = 36.dp), verticalArrangement = Arrangement.spacedBy(32.dp)) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (ready) context.getString(R.string.ui_permissions) else context.getString(R.string.ui_enable_permissions),
+            Text(if (accessibilityConnecting) context.getString(R.string.ui_connecting_accessibility_service)
+                else if (ready) context.getString(R.string.ui_permissions) else context.getString(R.string.ui_enable_permissions),
                 style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(if (ready) context.getString(R.string.ui_both_permissions_are_enabled_dotctrl_is_ready) else context.getString(R.string.ui_enable_both_permissions_to_start_using_dotctrl),
+            Text(if (accessibilityConnecting) context.getString(R.string.ui_waiting_for_accessibility_service_connection)
+                else if (ready) context.getString(R.string.ui_both_permissions_are_enabled_dotctrl_is_ready)
+                else context.getString(R.string.ui_enable_both_permissions_to_start_using_dotctrl),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary,
                 textAlign = TextAlign.Center)
         }
         Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))) {
             Column {
-                PermissionItem(context.getString(R.string.ui_accessibility_service), context.getString(R.string.ui_perform_taps_and_swipes), accessibilityReady, onAccessibility)
+                PermissionItem(
+                    context.getString(R.string.ui_accessibility_service),
+                    context.getString(R.string.ui_perform_taps_and_swipes),
+                    accessibilityReady,
+                    onAccessibility,
+                )
                 HorizontalDivider(Modifier.padding(horizontal = 20.dp),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f))
                 PermissionItem(context.getString(R.string.ui_floating_window), context.getString(R.string.ui_select_positions_and_control_clicks), overlayReady, onOverlay)
@@ -725,7 +763,7 @@ private fun PermissionItem(title: String, detail: String, granted: Boolean, onCl
 }
 
 @Composable
-private fun PermissionActions(ready: Boolean, onContinue: () -> Unit, onExit: () -> Unit) {
+private fun PermissionActions(ready: Boolean, connecting: Boolean, onContinue: () -> Unit, onExit: () -> Unit) {
     val context = LocalContext.current
     Surface(color = MaterialTheme.colorScheme.background) {
         Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 20.dp),
@@ -733,7 +771,13 @@ private fun PermissionActions(ready: Boolean, onContinue: () -> Unit, onExit: ()
             OutlinedButton(onClick = onExit, modifier = Modifier.weight(1f).heightIn(min = 54.dp),
                 shape = RoundedCornerShape(18.dp)) { Text(context.getString(R.string.ui_exit)) }
             Button(onClick = onContinue, modifier = Modifier.weight(2f).heightIn(min = 54.dp),
-                shape = RoundedCornerShape(18.dp)) { Text(if (ready) context.getString(R.string.ui_open_workbench) else context.getString(R.string.ui_quick_setup)) }
+                shape = RoundedCornerShape(18.dp)) {
+                Text(when {
+                    ready -> context.getString(R.string.ui_open_workbench)
+                    connecting -> context.getString(R.string.ui_reconnect_accessibility_service)
+                    else -> context.getString(R.string.ui_quick_setup)
+                })
+            }
         }
     }
 }

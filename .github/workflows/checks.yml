@@ -24,4 +24,4 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
       - name: Run tests, lint, and build
-        run: ./gradlew --no-daemon --no-configuration-cache :core:test :app:lintDebug :app:assembleDebug
+        run: ./gradlew --no-daemon --no-configuration-cache :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug

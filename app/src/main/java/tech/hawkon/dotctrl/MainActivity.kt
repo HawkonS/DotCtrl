@@ -14,6 +14,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.ViewModelProvider
+import tech.hawkon.dotctrl.updates.UpdateViewModel
 import tech.hawkon.dotctrl.data.DisplayPreferences
 import tech.hawkon.dotctrl.ui.DotCtrlApp
 import tech.hawkon.dotctrl.service.AutoClickAccessibilityService
@@ -24,6 +26,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val updates = ViewModelProvider(this, UpdateViewModel.factory(this))[UpdateViewModel::class.java]
         setContent {
             val displayPreferences = remember { DisplayPreferences(this) }
             val preferences = displayPreferences.preferences
@@ -45,6 +48,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 DotCtrlTheme(darkTheme = darkMode) {
                     DotCtrlApp(
+                        updates = updates,
                         onBackground = { moveTaskToBack(true) },
                         onExit = {
                             AutoClickAccessibilityService.instance?.closePanel()
