@@ -12,9 +12,9 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-147562.svg" alt="License: AGPL-3.0-only" /></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-147562.svg" alt="Android 8.0+" />
   <img src="https://img.shields.io/badge/Kotlin-Compose-147562.svg" alt="Kotlin and Jetpack Compose" />
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-147562.svg" alt="License: AGPL-3.0-only" /></a>
 </p>
 
 点控（DotCtrl）是一个原生 Android 自动点击工具。它使用 Android 无障碍服务派发用户明确配置的点击、长按和滑动手势，并通过悬浮窗完成屏幕选点、脚本编辑和运行控制。
@@ -68,6 +68,6 @@ Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。最低支持 A
 - 配置仅保存在应用私有存储中；导出的 JSON 包含坐标和脚本时序，请按私人配置妥善保管。
 - 请仅在获得授权的环境中使用，不得用于欺骗、作弊、侵犯隐私或规避安全机制。锁屏、安全界面、厂商限制或目标应用自身策略可能阻止手势派发，项目不承诺绕过这些限制。
 
-## 开源许可
+## License
 
 本项目依据 [GNU AGPL v3.0](./LICENSE)（`AGPL-3.0-only`）发布。

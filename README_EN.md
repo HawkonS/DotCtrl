@@ -11,9 +11,9 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-147562.svg" alt="License: AGPL-3.0-only" /></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-147562.svg" alt="Android 8.0+" />
   <img src="https://img.shields.io/badge/Kotlin-Compose-147562.svg" alt="Kotlin and Jetpack Compose" />
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-147562.svg" alt="License: AGPL-3.0-only" /></a>
 </p>
 
 DotCtrl (点控) is a native Android auto-clicking tool. It uses Android AccessibilityService to dispatch explicitly configured taps, long presses, and swipes. A floating panel handles point selection, script editing, and run controls.
